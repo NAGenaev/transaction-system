@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: transactions
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  mongo:
+    image: mongo:6
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  rabbitmq:
+    image: bitnami/rabbitmq:latest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_USERNAME: user
+      RABBITMQ_PASSWORD: password
+    volumes:
+      - rabbitmq-data:/bitnami/rabbitmq
+
+  transaction-service:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_DSN: "postgresql://user:password@postgres/transactions"
+      MONGO_URI: "mongodb://mongo:27017"
+      RABBITMQ_URI: "amqp://user:password@rabbitmq:5672"
+    depends_on:
+      - postgres
+      - mongo
+      - rabbitmq
+
+volumes:
+  postgres-data:
+  mongo-data:
+  rabbitmq-data:
