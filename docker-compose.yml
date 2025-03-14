@@ -10,14 +10,9 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-data:/var/lib/postgresql/data
 
-  mongo:
-    image: mongo:6
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo-data:/data/db
+
 
   rabbitmq:
     image: bitnami/rabbitmq:latest
@@ -25,10 +20,13 @@ services:
       - "5672:5672"
       - "15672:15672"
     environment:
-      RABBITMQ_USERNAME: user
-      RABBITMQ_PASSWORD: password
+      - RABBITMQ_MANAGEMENT_LISTENER=0.0.0.0:15672
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=strongpassword
+      - RABBITMQ_DEFAULT_VHOST=/
     volumes:
       - rabbitmq-data:/bitnami/rabbitmq
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
 
   transaction-service:
     build: .
@@ -36,14 +34,11 @@ services:
       - "8000:8000"
     environment:
       POSTGRES_DSN: "postgresql://user:password@postgres/transactions"
-      MONGO_URI: "mongodb://mongo:27017"
       RABBITMQ_URI: "amqp://user:password@rabbitmq:5672"
     depends_on:
       - postgres
-      - mongo
       - rabbitmq
 
 volumes:
   postgres-data:
-  mongo-data:
   rabbitmq-data:

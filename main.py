@@ -12,7 +12,12 @@ async def get_db():
 
 # Подключение к RabbitMQ
 def send_to_queue(queue, message):
-    connection = pika.BlockingConnection(pika.ConnectionParameters(host="rabbitmq",credentials=pika.PlainCredentials("admin", "strongpassword")))
+    connection = pika.BlockingConnection(
+        pika.ConnectionParameters(
+            host="rabbitmq", 
+            credentials=pika.PlainCredentials("admin", "strongpassword")
+        )
+    )
     channel = connection.channel()
     channel.queue_declare(queue=queue)
     channel.basic_publish(exchange='', routing_key=queue, body=json.dumps(message))

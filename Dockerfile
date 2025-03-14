@@ -11,7 +11,6 @@ COPY . /app/
 
 # Устанавливаем переменные окружения
 ENV POSTGRES_DSN=postgresql://user:password@postgres/transactions
-ENV MONGO_URI=mongodb://mongo:27017
 ENV RABBITMQ_URI=amqp://user:password@rabbitmq:5672
 
 # Запускаем приложение
