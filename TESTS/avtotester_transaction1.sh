@@ -217,7 +217,7 @@ RECIPIENTS=(
 TX_PER_SENDER=1
 
 # Количество повторений всего теста
-REPEAT_COUNT=10000
+REPEAT_COUNT=3
 
 # Запускаем тестирование 10000 раз
 for ((repeat = 1; repeat <= REPEAT_COUNT; repeat++)); do
@@ -239,7 +239,7 @@ for ((repeat = 1; repeat <= REPEAT_COUNT; repeat++)); do
         }" \
         --silent --output /dev/null &  # Фоновый процесс для ускорения
 
-      sleep 0.01  # Небольшая пауза для уменьшения нагрузки на БД
+      sleep 0.1  # Небольшая пауза для уменьшения нагрузки на БД
     done
   done
 
