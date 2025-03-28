@@ -4,8 +4,11 @@ import asyncpg
 import aio_pika
 import json
 from asyncpg import Pool
+from prometheus_fastapi_instrumentator import Instrumentator
 
 app = FastAPI()
+# Подключаем сбор метрик
+Instrumentator().instrument(app).expose(app)
 
 # Глобальные переменные для пула соединений
 db_pool: Pool = None

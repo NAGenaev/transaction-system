@@ -12,15 +12,12 @@ services:
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
 
-
-
   rabbitmq:
     image: bitnami/rabbitmq:latest
     ports:
       - "5672:5672"
       - "15672:15672"
     environment:
-      - RABBITMQ_MANAGEMENT_LISTENER=0.0.0.0:15672
       - RABBITMQ_DEFAULT_USER=admin
       - RABBITMQ_DEFAULT_PASS=strongpassword
       - RABBITMQ_DEFAULT_VHOST=/
@@ -28,17 +25,48 @@ services:
       - rabbitmq-data:/bitnami/rabbitmq
       - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
 
+  rabbitmq_exporter:
+    image: kbudde/rabbitmq-exporter
+    ports:
+      - "9419:9419"
+    environment:
+      - RABBITMQ_CAPABILITIES=bert,no_sort
+      - RABBIT_URL=http://admin:strongpassword@rabbitmq:15672
+
   transaction-service:
     build: .
     ports:
       - "8000:8000"
     environment:
       POSTGRES_DSN: "postgresql://user:password@postgres/transactions"
-      RABBITMQ_URI: "amqp://user:password@rabbitmq:5672"
+      RABBITMQ_URI: "amqp://admin:strongpassword@rabbitmq:5672"
     depends_on:
       - postgres
       - rabbitmq
+      - rabbitmq_exporter
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
 
 volumes:
   postgres-data:
   rabbitmq-data:
+  grafana-data:
