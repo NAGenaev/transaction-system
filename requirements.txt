@@ -1,5 +1,5 @@
-fastapi
-uvicorn
-asyncpg
-pymongo
-pika
+fastapi==0.95.0
+uvicorn==0.22.0
+asyncpg==0.27.0
+pymongo==4.3.3
+aio_pika==8.0.0
