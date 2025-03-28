@@ -216,25 +216,34 @@ RECIPIENTS=(
 # Количество транзакций на каждого отправителя
 TX_PER_SENDER=1
 
-# Запускаем тест
-for ((i = 0; i < ${#SENDERS[@]}; i++)); do
-  SENDER="${SENDERS[$i]}"
-  RECIPIENT="${RECIPIENTS[$i]}"
+# Количество повторений всего теста
+REPEAT_COUNT=10000
 
-  for ((j = 1; j <= TX_PER_SENDER; j++)); do
-    echo "Транзакция #$j: Отправитель $SENDER -> Получатель $RECIPIENT"
-    
-    curl -X 'POST' "$URL" \
-      -H 'Content-Type: application/json' \
-      -d "{
-        \"amount\": \"$AMOUNT\",
-        \"sender\": \"$SENDER\",
-        \"recipient\": \"$RECIPIENT\"
-      }" \
-      --silent --output /dev/null &  # Фоновый процесс для ускорения
+# Запускаем тестирование 10000 раз
+for ((repeat = 1; repeat <= REPEAT_COUNT; repeat++)); do
+  echo "Запуск повторения #$repeat"
 
-    sleep 0.01  # Небольшая пауза для уменьшения нагрузки на БД
+  for ((i = 0; i < ${#SENDERS[@]}; i++)); do
+    SENDER="${SENDERS[$i]}"
+    RECIPIENT="${RECIPIENTS[$i]}"
+
+    for ((j = 1; j <= TX_PER_SENDER; j++)); do
+      echo "Транзакция #$j: Отправитель $SENDER -> Получатель $RECIPIENT"
+
+      curl -X 'POST' "$URL" \
+        -H 'Content-Type: application/json' \
+        -d "{
+          \"amount\": \"$AMOUNT\",
+          \"sender\": \"$SENDER\",
+          \"recipient\": \"$RECIPIENT\"
+        }" \
+        --silent --output /dev/null &  # Фоновый процесс для ускорения
+
+      sleep 0.01  # Небольшая пауза для уменьшения нагрузки на БД
+    done
   done
+
+  echo "✅ Повторение #$repeat завершено!"
 done
 
-echo "✅ Тестирование завершено!"
+echo "✅ Все тестирования завершены!"
