@@ -14,7 +14,6 @@ async def get_db_pool() -> Pool:
     "postgresql://user:password@postgres/transactions",
     min_size=50,    # минимальное количество соединений
     max_size=200,   # максимальное количество соединений
-    max_queries=50000,  # максимальное количество запросов на одно соединение
     max_inactive_connection_lifetime=60 * 60,  # время жизни бездействующего соединения (в секундах)
     )
 
