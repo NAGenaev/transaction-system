@@ -30,20 +30,26 @@ services:
     ports:
       - "9419:9419"
     environment:
-      - RABBITMQ_CAPABILITIES=bert,no_sort
       - RABBIT_URL=http://admin:strongpassword@rabbitmq:15672
+      - RABBIT_USER=admin
+      - RABBIT_PASSWORD=strongpassword
+      - RABBITMQ_CAPABILITIES=no_sort,bert
+      
 
   transaction-service:
     build: .
+    restart: always
     ports:
       - "8000:8000"
     environment:
       POSTGRES_DSN: "postgresql://user:password@postgres/transactions"
       RABBITMQ_URI: "amqp://admin:strongpassword@rabbitmq:5672"
     depends_on:
-      - postgres
       - rabbitmq
       - rabbitmq_exporter
+      - prometheus
+      - grafana
+      - postgres
 
   prometheus:
     image: prom/prometheus:latest
@@ -70,3 +76,4 @@ volumes:
   postgres-data:
   rabbitmq-data:
   grafana-data:
+  
