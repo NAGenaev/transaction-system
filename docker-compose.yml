@@ -12,51 +12,55 @@ services:
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
 
-  rabbitmq:
-    image: bitnami/rabbitmq:latest
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      - RABBITMQ_DEFAULT_USER=admin
-      - RABBITMQ_DEFAULT_PASS=strongpassword
-      - RABBITMQ_DEFAULT_VHOST=/
-    volumes:
-      - rabbitmq-data:/bitnami/rabbitmq
-      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
 
-  rabbitmq_exporter:
-    image: kbudde/rabbitmq-exporter
+  kafka:
+    image: bitnami/kafka:latest
     ports:
-      - "9419:9419"
+      - "9092:9092"
     environment:
-      - RABBIT_URL=http://admin:strongpassword@rabbitmq:15672
-      - RABBIT_USER=admin
-      - RABBIT_PASSWORD=strongpassword
-      - RABBITMQ_CAPABILITIES=no_sort,bert
-      
-
-  transaction-service:
-    build: .
-    restart: always
-    ports:
-      - "8000:8000"
-    environment:
-      POSTGRES_DSN: "postgresql://user:password@postgres/transactions"
-      RABBITMQ_URI: "amqp://admin:strongpassword@rabbitmq:5672"
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:9092
     depends_on:
-      - rabbitmq
-      - rabbitmq_exporter
-      - prometheus
-      - grafana
-      - postgres
+      - zookeeper
+
+  zookeeper:
+    image: bitnami/zookeeper:latest
+    ports:
+      - "2181:2181"
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.13.0
+    volumes:
+      - ./elastic/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+    ports:
+      - "5044:5044"
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.13.0
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    volumes:
+      - ./elastic/kibana.yml:/usr/share/kibana/config/kibana.yml
+    depends_on:
+      - elasticsearch
 
   prometheus:
     image: prom/prometheus:latest
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
       - "9090:9090"
 
@@ -74,6 +78,6 @@ services:
 
 volumes:
   postgres-data:
-  rabbitmq-data:
   grafana-data:
+  elasticsearch-data:
   
