@@ -35,24 +35,25 @@ services:
     - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT
     - KAFKA_LISTENER_NAME=PLAINTEXT
 
-  #prometheus:
-    #image: prom/prometheus:latest
-    #volumes:
-    #  - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-    #ports:
-    #  - "9090:9090"
+######## MONITORING ########
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
 
-  #grafana:
-    #image: grafana/grafana:latest
-    #ports:
-    #  - "3000:3000"
-    #depends_on:
-    #  - prometheus
-    #environment:
-    #  - GF_SECURITY_ADMIN_USER=admin
-    #  - GF_SECURITY_ADMIN_PASSWORD=admin
-    #volumes:
-    #  - grafana-data:/var/lib/grafana
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
   api:
     restart: always
     build:
@@ -63,6 +64,34 @@ services:
     depends_on:
       - postgres
       - kafka
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor
+    container_name: cadvisor
+    privileged: true
+    ports:
+      - "8089:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter
+    ports:
+      - "9308:9308"
+    environment:
+      KAFKA_URI: kafka:9092
+    command:
+      - '--kafka.server=kafka:9092'
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter
+    ports:
+      - "9187:9187"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://user:password@postgres:5432/transactions?sslmode=disable"
 
   orchestrator:
     build:
@@ -93,5 +122,5 @@ services:
 
 volumes:
   postgres-data:
-  #grafana-data:
+  grafana-data:
   
