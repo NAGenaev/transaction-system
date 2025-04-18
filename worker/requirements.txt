@@ -1,5 +1,9 @@
-fastapi
-uvicorn
-asyncpg
+# worker/requirements.txt
+kafka-python==2.0.2
+asyncpg==0.29.0
+SQLAlchemy==2.0.29
+pydantic==2.6.4
+loguru==0.7.2
 aiokafka
-pydantic
+datetime
+pyfiglet

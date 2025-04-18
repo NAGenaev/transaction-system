@@ -12,72 +12,86 @@ services:
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
 
-
-  kafka:
-    image: bitnami/kafka:latest
-    ports:
-      - "9092:9092"
-    environment:
-      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:9092
-    depends_on:
-      - zookeeper
-
   zookeeper:
-    image: bitnami/zookeeper:latest
+    image: bitnami/zookeeper:3.8
     ports:
       - "2181:2181"
-
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
     environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-    ports:
-      - "9200:9200"
-    volumes:
-      - elasticsearch-data:/usr/share/elasticsearch/data
+      - ALLOW_ANONYMOUS_LOGIN=yes
 
-  logstash:
-    image: docker.elastic.co/logstash/logstash:8.13.0
-    volumes:
-      - ./elastic/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+  kafka:
+    image: bitnami/kafka:3.5
     ports:
-      - "5044:5044"
-
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.13.0
-    ports:
-      - "5601:5601"
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-    volumes:
-      - ./elastic/kibana.yml:/usr/share/kibana/config/kibana.yml
+      - "9092:9092"
     depends_on:
-      - elasticsearch
-
-  prometheus:
-    image: prom/prometheus:latest
-    volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-    ports:
-      - "9090:9090"
-
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3000:3000"
-    depends_on:
-      - prometheus
+      - zookeeper
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-    volumes:
-      - grafana-data:/var/lib/grafana
+    - KAFKA_LISTENER_SECURITY_PROTOCOL=PLAINTEXT
+    - KAFKA_LISTENER_PORT=9092
+    - KAFKA_LISTENER_NAME=PLAINTEXT
+    - KAFKA_LISTENER=PLAINTEXT://0.0.0.0:9092
+    - KAFKA_ADVERTISED_LISTENER=PLAINTEXT://kafka:9092  # Указываем имя хоста, как указано в сервисе Kafka
+    - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+    - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT
+    - KAFKA_LISTENER_NAME=PLAINTEXT
+
+  #prometheus:
+    #image: prom/prometheus:latest
+    #volumes:
+    #  - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    #ports:
+    #  - "9090:9090"
+
+  #grafana:
+    #image: grafana/grafana:latest
+    #ports:
+    #  - "3000:3000"
+    #depends_on:
+    #  - prometheus
+    #environment:
+    #  - GF_SECURITY_ADMIN_USER=admin
+    #  - GF_SECURITY_ADMIN_PASSWORD=admin
+    #volumes:
+    #  - grafana-data:/var/lib/grafana
+  api:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./api/Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - kafka
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    container_name: orchestrator
+    depends_on:
+      - kafka
+    restart: unless-stopped
+
+  worker:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=my-cluster
+      - KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS=kafka:9092  # адрес kafka
+      - KAFKA_SERVER=PLAINTEXT://kafka:9092
+      - KAFKA_PROXY=true
+    ports:
+      - "8080:8080"
 
 volumes:
   postgres-data:
-  grafana-data:
-  elasticsearch-data:
+  #grafana-data:
   

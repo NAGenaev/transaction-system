@@ -1,17 +1,16 @@
-# worker/Dockerfile
+# orchestrator/Dockerfile
 FROM python:3.11-slim
 # Устанавливаем зависимости
 WORKDIR /app
-COPY ./worker/requirements.txt /app/
+COPY ./orchestrator/requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 # Копируем код приложения
 COPY ./common /app/common
-COPY ./worker /app/worker
+COPY ./orchestrator /app/orchestrator
 # Устанавливаем переменные окружения
-ENV POSTGRES_DSN=postgresql://user:password@postgres/transactions
 ENV KAFKA_URI=kafka:9092
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 # Запускаем приложение
-#CMD ["python", "-u", "worker/consumer.py"]
-CMD sleep 20 && python -u worker/consumer.py
+#CMD ["python", "-u", "orchestrator/orchestra.py"]
+CMD sleep 15 && python -u orchestrator/orchestra.py
