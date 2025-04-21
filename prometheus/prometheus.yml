@@ -19,4 +19,4 @@ scrape_configs:
       - targets: ['postgres-exporter:9187']
   - job_name: 'cadvisor'
     static_configs:
-      - targets: ['cadvisor:8089']
+      - targets: ['cadvisor:8080']

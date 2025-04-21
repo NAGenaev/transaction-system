@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+######## POSTGRES ########
   postgres:
     image: postgres:15
     environment:
@@ -12,6 +13,7 @@ services:
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
 
+######## KAFKA ########
   zookeeper:
     image: bitnami/zookeeper:3.8
     ports:
@@ -35,6 +37,16 @@ services:
     - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT
     - KAFKA_LISTENER_NAME=PLAINTEXT
 
+  kafka-ui:
+    image: provectuslabs/kafka-ui
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=my-cluster
+      - KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS=kafka:9092  # адрес kafka
+      - KAFKA_SERVER=PLAINTEXT://kafka:9092
+      - KAFKA_PROXY=true
+    ports:
+      - "8080:8080"
+
 ######## MONITORING ########
   prometheus:
     image: prom/prometheus:latest
@@ -54,18 +66,9 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
       - grafana-data:/var/lib/grafana
-  api:
-    restart: always
-    build:
-      context: .
-      dockerfile: ./api/Dockerfile
-    ports:
-      - "8000:8000"
-    depends_on:
-      - postgres
-      - kafka
 
   cadvisor:
+    restart: always
     image: gcr.io/cadvisor/cadvisor
     container_name: cadvisor
     privileged: true
@@ -78,6 +81,7 @@ services:
       - /var/lib/docker/:/var/lib/docker:ro
 
   kafka-exporter:
+    restart: always
     image: danielqsj/kafka-exporter
     ports:
       - "9308:9308"
@@ -87,12 +91,24 @@ services:
       - '--kafka.server=kafka:9092'
 
   postgres-exporter:
+    restart: always
     image: prometheuscommunity/postgres-exporter
     ports:
       - "9187:9187"
     environment:
       DATA_SOURCE_NAME: "postgresql://user:password@postgres:5432/transactions?sslmode=disable"
 
+######## PRODUCT SERVICES ########
+  api:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./api/Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - kafka
   orchestrator:
     build:
       context: .
@@ -110,15 +126,6 @@ services:
     depends_on:
       - kafka
 
-  kafka-ui:
-    image: provectuslabs/kafka-ui
-    environment:
-      - KAFKA_CLUSTERS_0_NAME=my-cluster
-      - KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS=kafka:9092  # адрес kafka
-      - KAFKA_SERVER=PLAINTEXT://kafka:9092
-      - KAFKA_PROXY=true
-    ports:
-      - "8080:8080"
 
 volumes:
   postgres-data:
