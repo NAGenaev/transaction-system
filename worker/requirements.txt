@@ -8,3 +8,5 @@ aiokafka
 datetime
 pyfiglet
 prometheus_client
+python-snappy
+tenacity==8.2.3

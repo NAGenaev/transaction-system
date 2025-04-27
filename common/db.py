@@ -1,12 +1,14 @@
-# common/db.py
 import asyncpg
 import asyncio
 from datetime import datetime
+import logging
 
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = "postgresql://user:password@postgres/transactions"
 
-# Пул соединений для работы с PostgreSQL
 class DB:
     def __init__(self, dsn: str):
         self.dsn = dsn
@@ -14,33 +16,52 @@ class DB:
 
     async def init(self):
         """Инициализация пула соединений."""
-        self.pool = await asyncpg.create_pool(dsn=self.dsn, min_size=5, max_size=10)
+        try:
+            self.pool = await asyncpg.create_pool(dsn=self.dsn, min_size=1, max_size=2)
+            logger.info("Пул соединений с базой данных успешно инициализирован.")
+        except Exception as e:
+            logger.error(f"Ошибка при инициализации пула соединений: {e}")
+            raise
 
     async def fetch(self, query, *args):
         """Выполнение SELECT запроса."""
-        async with self.pool.acquire() as connection:
-            result = await connection.fetch(query, *args)
-        return result
+        try:
+            async with self.pool.acquire() as connection:
+                result = await connection.fetch(query, *args)
+            return result
+        except Exception as e:
+            logger.error(f"Ошибка при выполнении SELECT запроса: {e}")
+            raise
 
     async def fetchrow(self, query, *args):
         """Выполнение SELECT запроса, возвращающего одну строку."""
-        async with self.pool.acquire() as connection:
-            result = await connection.fetchrow(query, *args)
-        return result
+        try:
+            async with self.pool.acquire() as connection:
+                result = await connection.fetchrow(query, *args)
+            return result
+        except Exception as e:
+            logger.error(f"Ошибка при выполнении SELECT запроса (fetchrow): {e}")
+            raise
 
     async def execute(self, query, *args):
         """Выполнение INSERT/UPDATE/DELETE запроса."""
-        async with self.pool.acquire() as connection:
-            await connection.execute(query, *args)
+        try:
+            async with self.pool.acquire() as connection:
+                await connection.execute(query, *args)
+        except Exception as e:
+            logger.error(f"Ошибка при выполнении запроса (execute): {e}")
+            raise
 
     async def close(self):
         """Закрытие пула соединений."""
-        await self.pool.close()
-
+        if self.pool:
+            await self.pool.close()
+            logger.info("Пул соединений закрыт.")
+        else:
+            logger.warning("Попытка закрыть пул соединений, который не был инициализирован.")
 
 # Инициализация глобальной переменной для работы с БД
 db = DB(DATABASE_URL)
-
 
 # Модель для транзакции (не изменилось)
 async def create_transaction(sender_account: str, receiver_account: str, amount: float):
@@ -50,23 +71,33 @@ async def create_transaction(sender_account: str, receiver_account: str, amount:
     RETURNING id;
     """
     timestamp = datetime.utcnow()
-    result = await db.fetchrow(query, sender_account, receiver_account, amount, timestamp)
-    return result
-
+    try:
+        result = await db.fetchrow(query, sender_account, receiver_account, amount, timestamp)
+        return result
+    except Exception as e:
+        logger.error(f"Ошибка при создании транзакции: {e}")
+        raise
 
 # Пример функции для получения транзакции по ID
 async def get_transaction_by_id(transaction_id: int):
     query = """
     SELECT * FROM transactions WHERE id = $1;
     """
-    result = await db.fetchrow(query, transaction_id)
-    return result
-
+    try:
+        result = await db.fetchrow(query, transaction_id)
+        return result
+    except Exception as e:
+        logger.error(f"Ошибка при получении транзакции по ID {transaction_id}: {e}")
+        raise
 
 # Пример функции для получения всех транзакций
 async def get_all_transactions():
     query = """
     SELECT * FROM transactions;
     """
-    result = await db.fetch(query)
-    return result
+    try:
+        result = await db.fetch(query)
+        return result
+    except Exception as e:
+        logger.error(f"Ошибка при получении всех транзакций: {e}")
+        raise

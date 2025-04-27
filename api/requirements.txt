@@ -8,3 +8,5 @@ python-dotenv==1.0.1
 prometheus-fastapi-instrumentator
 prometheus_client
 pyfiglet
+gunicorn[uvicorn]
+python-snappy

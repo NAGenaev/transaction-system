@@ -28,14 +28,20 @@ services:
     depends_on:
       - zookeeper
     environment:
-    - KAFKA_LISTENER_SECURITY_PROTOCOL=PLAINTEXT
-    - KAFKA_LISTENER_PORT=9092
-    - KAFKA_LISTENER_NAME=PLAINTEXT
-    - KAFKA_LISTENER=PLAINTEXT://0.0.0.0:9092
-    - KAFKA_ADVERTISED_LISTENER=PLAINTEXT://kafka:9092  # Указываем имя хоста, как указано в сервисе Kafka
-    - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
-    - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT
-    - KAFKA_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_BROKER_ID=1
+      - KAFKA_CFG_NUM_PARTITIONS=3
+      - KAFKA_CFG_REPLICATION_FACTOR=1
+      - KAFKA_CFG_LOG_RETENTION_HOURS=1
+    healthcheck:
+      test: ["CMD", "kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
 
   kafka-ui:
     image: provectuslabs/kafka-ui
@@ -109,6 +115,12 @@ services:
     depends_on:
       - postgres
       - kafka
+    environment:
+      - POSTGRES_DSN=postgresql://user:password@postgres/transactions
+      - KAFKA_URI=kafka:9092
+      - PYTHONUNBUFFERED=1
+
+
   orchestrator:
     build:
       context: .
@@ -118,15 +130,158 @@ services:
       - kafka
     restart: unless-stopped
 
-  worker:
+  worker1:
     restart: always
     build:
       context: .
       dockerfile: ./worker/Dockerfile
     depends_on:
       - kafka
+    environment:
+      - VALIDATED_TOPIC=shard-0-validated
 
 
+  worker2:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      - VALIDATED_TOPIC=shard-1-validated
+
+  worker3:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      - VALIDATED_TOPIC=shard-2-validated
+
+  worker4:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      - VALIDATED_TOPIC=shard-3-validated
+
+  worker5:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      - VALIDATED_TOPIC=shard-4-validated
+  worker6:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      - VALIDATED_TOPIC=shard-5-validated
+  worker7:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      - VALIDATED_TOPIC=shard-6-validated
+  worker8:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      - VALIDATED_TOPIC=shard-7-validated     
+  worker9:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      - VALIDATED_TOPIC=shard-8-validated      
+  worker10:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      - VALIDATED_TOPIC=shard-9-validated
+  worker11:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      - VALIDATED_TOPIC=shard-10-validated
+
+  worker12:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      - VALIDATED_TOPIC=shard-11-validated
+  worker13:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      - VALIDATED_TOPIC=shard-12-validated
+  worker14:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka     
+    environment:
+      - VALIDATED_TOPIC=shard-13-validated
+
+  worker15:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      - VALIDATED_TOPIC=shard-14-validated
+
+  worker16:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      - VALIDATED_TOPIC=shard-15-validated
 volumes:
   postgres-data:
   grafana-data:

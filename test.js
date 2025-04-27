@@ -1,11 +1,11 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
-const accounts = Array.from({ length: 100 }, (_, i) => `40817810111322${111 + i}`);
+const accounts = Array.from({ length: 1000000 }, (_, i) => `40817810111322${111 + i}`);
 
 export const options = {
-  vus: 50,           // количество виртуальных пользователей
-  duration: '10m',   // длительность теста
+  vus: 10,           // количество виртуальных пользователей
+  duration: '2m',   // длительность теста
   thresholds: {
     'http_req_duration': ['p(95)<500'],  // 95% запросов должны быть выполнены за 500 мс
   },

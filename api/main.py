@@ -7,6 +7,14 @@ from common.constants import TOPIC_API_TO_ORCH
 import pyfiglet
 from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_client import Counter
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,  # или DEBUG
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+
+logger = logging.getLogger("api")
 
 ascii_banner = pyfiglet.figlet_format("TTTS API 0.0.3", font="slant")
 print(ascii_banner)
@@ -33,15 +41,23 @@ async def shutdown_event():
 async def health_check():
     return {"status": "ok"}
 
+    
 @app.post("/transactions/")
 async def create_transaction(tx: Transaction):
     api_requests_total.inc()
     try:
         message = tx.json().encode("utf-8")
-        await app.state.producer.send_and_wait(TOPIC_API_TO_ORCH, message)  # Отправляем в топик Orchestrator
-        print(f"✅ Запрос принят и отправлен в Orchestrator (topic:transaction-events): {tx}")
-        print(f"📦 API → Orchestrator: {tx}")
+        await asyncio.wait_for(
+            app.state.producer.send_and_wait(TOPIC_API_TO_ORCH, message),
+            timeout=2.0  # ⏱ ограничиваем время ожидания
+        )
+        logger.info(f"📦 API → Orchestrator: {tx}")
         return {"status": "queued"}
+    except asyncio.TimeoutError:
+        api_requests_failed.inc()
+        logger.error(f"⏱ Timeout при отправке Kafka: {tx}")
+        raise HTTPException(status_code=504, detail="Kafka timeout")
     except Exception as e:
         api_requests_failed.inc()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(f"💥 Ошибка при отправке в Kafka: {e}")
+        raise HTTPException(status_code=500, detail="Kafka send failed")
