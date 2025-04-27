@@ -20,4 +20,4 @@ ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
 # Запускаем приложение (после ожидания, чтобы Kafka и orchestrator успели подняться)
-CMD sleep 20 && python -u worker/consumer.py
+CMD sleep 1 && python -u worker/consumer.py

@@ -13,8 +13,8 @@ from aiokafka.errors import KafkaTimeoutError
 # ────────────────────────────
 # Настройка логгирования
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s:%(name)s:%(message)s",
+    level=logging.INFO,  # или DEBUG
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("worker")
 
@@ -49,13 +49,12 @@ semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
 )
 async def send_confirmation(producer, topic, msg: bytes):
     """Отправка подтверждения транзакции в Kafka с повторными попытками"""
-    async with semaphore:
-        try:
-            logger.info(f"🚚 Отправка сообщения в Kafka: {msg}")
-            await producer.send(topic, msg)
-            logger.info(f"✅ Сообщение успешно отправлено в Kafka: {msg}")
-        except Exception as e:
-            logger.error(f"❌ Ошибка при отправке сообщения в Kafka: {e}")
+    try:
+        logger.info(f"🚚 Отправка сообщения в Kafka: {msg}")
+        await producer.send(topic, msg)
+        logger.info(f"✅ Сообщение успешно отправлено в Kafka: {msg}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка при отправке сообщения в Kafka: {e}")
 
 
 async def process_transaction(tx: dict, producer):
@@ -107,7 +106,8 @@ async def process_transaction(tx: dict, producer):
 
         if confirmation_msg:
             logger.info(f"✅ Отправка подтверждения транзакции: {confirmation_msg}")
-            await send_confirmation(producer, TOPIC_CONFIRMATION, json.dumps(confirmation_msg).encode("utf-8"))
+            # Отправляем сообщение в Kafka, не блокируя выполнение обработки транзакции
+            asyncio.create_task(send_confirmation(producer, TOPIC_CONFIRMATION, json.dumps(confirmation_msg).encode("utf-8")))
 
     except Exception as e:
         logger.exception(f"❌ Ошибка при обработке транзакции: {e}")

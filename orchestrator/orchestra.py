@@ -12,8 +12,8 @@ from aiokafka.errors import KafkaTimeoutError
 # ────────────────────────────
 # Настройка логирования
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s:%(name)s:%(message)s",
+    level=logging.INFO,  # или DEBUG
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("orchestrator")
 
