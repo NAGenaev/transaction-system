@@ -6,3 +6,4 @@ pyfiglet
 prometheus_client
 python-snappy
 tenacity==8.2.3
+redis>=4.5.0 # добавляем для асинхронной работы с Redis

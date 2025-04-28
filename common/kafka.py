@@ -13,7 +13,7 @@ async def get_kafka_producer():
     """
     producer = AIOKafkaProducer(
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        acks=1,                  # Быстрее, чем "all"
+        acks="all",                  # Быстрее, чем "all"
         linger_ms=10,            # Буферизация ~10 мс перед отправкой
         compression_type="snappy",  # Быстрее, чем gzip, без лишнего overhead
     )

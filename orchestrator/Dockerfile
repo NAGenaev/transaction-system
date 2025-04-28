@@ -14,7 +14,6 @@ COPY ./common /app/common
 COPY ./orchestrator /app/orchestrator
 
 # Устанавливаем переменные окружения
-ENV KAFKA_URI=kafka:9092
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 

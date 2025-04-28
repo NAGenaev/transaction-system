@@ -45,5 +45,5 @@ export default function () {
     console.error(`❌ Ошибка при транзакции: ${res.status} → ${payload}`);
   }
 
-  sleep(0.5);
+  sleep(0.01);
 }
