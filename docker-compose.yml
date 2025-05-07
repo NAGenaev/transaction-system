@@ -34,7 +34,7 @@ services:
       - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
       - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
       - KAFKA_BROKER_ID=1
-      - KAFKA_CFG_NUM_PARTITIONS=3
+      - KAFKA_CFG_NUM_PARTITIONS=16
       - KAFKA_CFG_REPLICATION_FACTOR=1
       - KAFKA_CFG_LOG_RETENTION_HOURS=1
     healthcheck:
@@ -150,7 +150,8 @@ services:
     depends_on:
       - kafka
     environment:
-      - VALIDATED_TOPIC=shard-0-validated
+      - SHARD_ID=0
+      - VALIDATED_TOPIC=validated-transactions-0
 
 
   worker1:
@@ -161,7 +162,8 @@ services:
     depends_on:
       - kafka
     environment:
-      - VALIDATED_TOPIC=shard-1-validated
+      - SHARD_ID=1
+      - VALIDATED_TOPIC=validated-transactions-1
 
   worker2:
     restart: always
@@ -171,7 +173,8 @@ services:
     depends_on:
       - kafka
     environment:
-      - VALIDATED_TOPIC=shard-2-validated
+      - SHARD_ID=2
+      - VALIDATED_TOPIC=validated-transactions-2
 
   worker3:
     restart: always
@@ -181,7 +184,8 @@ services:
     depends_on:
       - kafka
     environment:
-      - VALIDATED_TOPIC=shard-3-validated
+      - SHARD_ID=3
+      - VALIDATED_TOPIC=validated-transactions-3
 
   worker4:
     restart: always
@@ -191,7 +195,9 @@ services:
     depends_on:
       - kafka
     environment:
-      - VALIDATED_TOPIC=shard-4-validated
+      - SHARD_ID=4
+      - VALIDATED_TOPIC=validated-transactions-4
+
   worker5:
     restart: always
     build:
@@ -200,7 +206,9 @@ services:
     depends_on:
       - kafka
     environment:
-      - VALIDATED_TOPIC=shard-5-validated
+      - SHARD_ID=5
+      - VALIDATED_TOPIC=validated-transactions-5
+      
   worker6:
     restart: always
     build:
@@ -209,7 +217,8 @@ services:
     depends_on:
       - kafka
     environment:
-      - VALIDATED_TOPIC=shard-6-validated
+      - SHARD_ID=6
+      - VALIDATED_TOPIC=validated-transactions-6
   worker7:
     restart: always
     build:
@@ -218,7 +227,8 @@ services:
     depends_on:
       - kafka
     environment:
-      - VALIDATED_TOPIC=shard-7-validated     
+      - SHARD_ID=7
+      - VALIDATED_TOPIC=validated-transactions-7
   worker8:
     restart: always
     build:
@@ -227,7 +237,8 @@ services:
     depends_on:
       - kafka
     environment:
-      - VALIDATED_TOPIC=shard-8-validated      
+      - SHARD_ID=8
+      - VALIDATED_TOPIC=validated-transactions-8
   worker9:
     restart: always
     build:
@@ -236,7 +247,8 @@ services:
     depends_on:
       - kafka
     environment:
-      - VALIDATED_TOPIC=shard-9-validated
+      - SHARD_ID=9
+      - VALIDATED_TOPIC=validated-transactions-9
   worker10:
     restart: always
     build:
@@ -245,7 +257,8 @@ services:
     depends_on:
       - kafka
     environment:
-      - VALIDATED_TOPIC=shard-10-validated
+      - SHARD_ID=10
+      - VALIDATED_TOPIC=validated-transactions-10
 
   worker11:
     restart: always
@@ -255,7 +268,8 @@ services:
     depends_on:
       - kafka
     environment:
-      - VALIDATED_TOPIC=shard-11-validated
+      - SHARD_ID=11
+      - VALIDATED_TOPIC=validated-transactions-11
   worker12:
     restart: always
     build:
@@ -264,7 +278,8 @@ services:
     depends_on:
       - kafka
     environment:
-      - VALIDATED_TOPIC=shard-12-validated
+      - SHARD_ID=12
+      - VALIDATED_TOPIC=validated-transactions-12
   worker13:
     restart: always
     build:
@@ -273,7 +288,8 @@ services:
     depends_on:
       - kafka     
     environment:
-      - VALIDATED_TOPIC=shard-13-validated
+      - SHARD_ID=13
+      - VALIDATED_TOPIC=validated-transactions-13
 
   worker14:
     restart: always
@@ -283,7 +299,8 @@ services:
     depends_on:
       - kafka
     environment:
-      - VALIDATED_TOPIC=shard-14-validated
+      - SHARD_ID=14
+      - VALIDATED_TOPIC=validated-transactions-14
 
   worker15:
     restart: always
@@ -293,7 +310,8 @@ services:
     depends_on:
       - kafka
     environment:
-      - VALIDATED_TOPIC=shard-15-validated
+      - SHARD_ID=15
+      - VALIDATED_TOPIC=validated-transactions-15
 volumes:
   postgres-data:
   grafana-data:
