@@ -21,3 +21,6 @@ COPY ./common /app/common
 
 # Запуск приложения
 CMD ["gunicorn", "api.main:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--workers", "4", "--bind", "0.0.0.0:8000"]
+
+# Запуск приложения (без gunicorn, через uvicorn напрямую)
+# CMD ["uvicorn", "api.main:app", "--workers", "4", "--host", "0.0.0.0", "--port", "8000", "--loop", "uvloop", "--http", "httptools"]

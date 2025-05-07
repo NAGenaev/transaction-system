@@ -3,7 +3,7 @@ import { check, sleep } from 'k6';
 
 const startNumber = 40817810111322211n;
 const totalTransactions = 1_000_000;
-const vus = 50;
+const vus = 100;
 const transactionsPerVU = totalTransactions / vus;
 
 export const options = {

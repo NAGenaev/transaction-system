@@ -18,4 +18,4 @@ ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
 # Запускаем приложение (с задержкой, если нужно дождаться Kafka)
-CMD sleep 15 && python -u orchestrator/orchestra.py
+CMD sleep 1 && python -u orchestrator/orchestra.py
