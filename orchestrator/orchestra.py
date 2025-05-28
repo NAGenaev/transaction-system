@@ -11,12 +11,13 @@ import redis.asyncio as aioredis
 import time
 from aiokafka.structs import RecordMetadata
 from collections import defaultdict
+from asyncio import CancelledError
 
 # ==================== КОНФИГУРАЦИЯ ====================
 CONFIG = {
     "TOPIC_API_TO_ORCH": "transaction-events",
     "TOPIC_CONFIRMATION": "transaction-confirmation",
-    "SHARD_COUNT": 16,
+    "SHARD_COUNT": 1,
     "REDIS_URL": "redis://redis:6379",
     "MAX_PARALLEL_WORKERS": 500,
     "BATCH_SIZE": 100,
@@ -174,7 +175,6 @@ class Orchestrator:
         wait=wait_exponential(multiplier=0.1, max=1),
         retry=retry_if_exception_type(KafkaTimeoutError)
     )
-
     async def send_transaction_batch(self, transactions):
         """Корректная отправка батча транзакций"""
         start_time = time.time()
@@ -190,10 +190,8 @@ class Orchestrator:
 
             # Отправляем батчи для каждого шарда
             for topic, messages in shard_msgs.items():
-                # Вариант 1: Отправка через send_many (лучший способ)
                 if hasattr(self.producer, 'send_many'):
                     await self.producer.send_many(topic, messages)
-                # Вариант 2: Альтернативная реализация
                 else:
                     for key, value in messages:
                         await self.producer.send(topic, value=value, key=key)
@@ -205,14 +203,24 @@ class Orchestrator:
         finally:
             Metrics.processing_time.observe(time.time() - start_time)
 
+    async def send_transaction(self, tx, shard_id):
+        """Отправка отдельной транзакции в Kafka"""
+        topic = f"validated-transactions-{shard_id}"
+        try:
+            key = str(tx.get("transaction_id", "")).encode()
+            value = json.dumps(tx).encode('utf-8')
+            await self.producer.send(topic, value=value, key=key)
+            Metrics.sent.inc()
+        except Exception as e:
+            logger.error(f"Failed to send transaction: {e}")
+            raise
+
     async def process_batch(self, batch):
         """Оптимизированная обработка батча"""
         try:
-            # Блокируем аккаунты батчем
             pairs = [(tx["sender_account"], tx["receiver_account"]) for tx in batch]
             locked_pairs = await self.redis.batch_lock(pairs)
             
-            # Разделяем на обработанные и отложенные
             locked_senders = {sender for sender, _ in locked_pairs}
             processed, queued = [], []
             
@@ -222,7 +230,6 @@ class Orchestrator:
                 else:
                     queued.append(tx)
             
-            # Пакетная отправка и сохранение
             if processed:
                 await self.send_transaction_batch(processed)
             
@@ -259,136 +266,62 @@ class Orchestrator:
         return workers
     
     async def consume_transactions(self):
-        async for msg in self.consumer:
-            try:
-                tx = json.loads(msg.value)
-                Metrics.received.inc()
-                await self.queue.put(tx)
-            except Exception as e:
-                logger.error(f"Consume error: {e}")
-    
-    async def consume_transactions(self):
-        """Оптимизированное потребление с батчингом"""
         batch = []
-        async for msg in self.consumer:
-            try:
-                tx = json.loads(msg.value)
-                Metrics.received.inc()
-                batch.append(tx)
-                
-                if len(batch) >= CONFIG["BATCH_SIZE"]:
-                    await self.queue.put(batch.copy())
-                    batch.clear()
-            except Exception as e:
-                logger.error(f"Consume error: {e}")
-        
-        if batch:  # Обработка оставшихся сообщений
-            await self.queue.put(batch)
+        flush_interval = CONFIG.get("BATCH_FLUSH_INTERVAL", 1.0)
+        last_flush = asyncio.get_event_loop().time()
     
-    async def update_metrics(self):
-        while True:
-            try:
-                keys = await self.redis.redis.keys("queue:*")
-                total = 0
-                if keys:
-                    lengths = await self.redis.redis.mget(*keys)
-                    total = sum(int(length) for length in lengths if length)
-                Metrics.queue_size.set(total)
-            except Exception as e:
-                logger.error(f"Metrics error: {e}")
-            await asyncio.sleep(5)
-    
-    async def run(self):
-        await self.initialize()
-        workers = await self.start_workers()
-        metrics_task = asyncio.create_task(self.update_metrics())
-        
         try:
-            await asyncio.gather(
-                self.consume_transactions(),
-                self.consume_confirmations()
-            )
-        finally:
-            for worker in workers:
-                worker.cancel()
-            metrics_task.cancel()
-            await asyncio.gather(
-                self.consumer.stop(),
-                self.confirmation_consumer.stop(),
-                self.producer.stop(),
-                return_exceptions=True
-            )
-            
-    async def consume_confirmations(self):
-        """Обработка подтверждений от воркеров"""
-        try:
-            async for msg in self.confirmation_consumer:
+            async for msg in self.consumer:
                 try:
-                    confirmation = json.loads(msg.value)
-                    Metrics.confirmations.inc()
+                    tx = json.loads(msg.value.decode())
+                    batch.append(tx)
+                    Metrics.received.inc()
                     
-                    sender = confirmation["sender_account"]
-                    receiver = confirmation["receiver_account"]
-                    
-                    # Получаем следующую транзакцию из очереди
-                    next_tx = await self.redis.redis.lpop(
-                        f"queue:{sender}:{receiver}"
-                    )
-                    
-                    if next_tx:
-                        tx = json.loads(next_tx)
-                        shard_id = hash(sender) % CONFIG["SHARD_COUNT"]
-                        await self.send_transaction(tx, shard_id)
-                    else:
-                        # Если очередь пуста, разблокируем аккаунты
-                        await self.redis.batch_unlock([(sender, receiver)])
-                        
-                except json.JSONDecodeError as e:
-                    logger.error(f"Invalid confirmation message: {msg.value}, error: {e}")
-                except KeyError as e:
-                    logger.error(f"Missing field in confirmation: {e}")
+                    now = asyncio.get_event_loop().time()
+                    if len(batch) >= CONFIG["BATCH_SIZE"] or (now - last_flush) >= flush_interval:
+                        await self.queue.put(batch)
+                        Metrics.queue_size.set(self.queue.qsize())
+                        batch = []
+                        last_flush = now
                 except Exception as e:
-                    logger.error(f"Error processing confirmation: {e}")
-                    
-        except Exception as e:
-            logger.error(f"Confirmation consumer failed: {e}")
-            raise
-
+                    logger.error(f"Failed to process incoming message: {e}")
+        except CancelledError:
+            logger.info("Transaction consumer cancelled")
+    
+    async def consume_confirmations(self):
+        async for msg in self.confirmation_consumer:
+            try:
+                conf = json.loads(msg.value.decode())
+                Metrics.confirmations.inc()
+                # Тут можно добавить логику подтверждений
+                logger.info(f"Confirmation received: {conf}")
+            except Exception as e:
+                logger.error(f"Failed to process confirmation message: {e}")
+    
     async def run(self):
-        """Основной цикл работы оркестратора"""
+        logger.info(pyfiglet.figlet_format("Orchestrator"))
         await self.initialize()
+        logger.info("Orchestrator initialized and starting")
+
         workers = await self.start_workers()
-        metrics_task = asyncio.create_task(self.update_metrics())
         
-        try:
-            # Запускаем оба потребителя параллельно
-            await asyncio.gather(
-                self.consume_transactions(),
-                self.consume_confirmations()  # Теперь метод существует
-            )
-        except asyncio.CancelledError:
-            logger.info("Received shutdown signal")
-        except Exception as e:
-            logger.error(f"Orchestrator failed: {e}")
-        finally:
-            # Корректное завершение
-            for worker in workers:
-                worker.cancel()
-            metrics_task.cancel()
-            
-            await asyncio.gather(
-                self.consumer.stop(),
-                self.confirmation_consumer.stop(),
-                self.producer.stop(),
-                return_exceptions=True
-            )
-            await self.redis.redis.close()
-            logger.info("Orchestrator shutdown complete")
+        tasks = [
+            asyncio.create_task(self.consume_transactions()),
+            asyncio.create_task(self.consume_confirmations()),
+        ]
+        
+        start_http_server(CONFIG["METRICS_PORT"])
+        
+        await asyncio.gather(*tasks)
+        await self.queue.join()
+        
+        for w in workers:
+            w.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
+
 
 # ==================== ЗАПУСК ====================
 if __name__ == "__main__":
-    start_http_server(CONFIG["METRICS_PORT"])
-    
     ascii_banner = pyfiglet.figlet_format("OPTIMIZED ORCHESTRATOR", font="slant")
     print(ascii_banner)
     

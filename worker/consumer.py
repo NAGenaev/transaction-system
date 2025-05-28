@@ -74,7 +74,7 @@ class ShardWorker:
 
     async def init_resources(self):
         try:
-            await db.get_instance()
+            await db.initialize()
             self.producer = await get_kafka_producer(**CONFIG["KAFKA_PRODUCER_CONFIG"])
             self.consumer = await get_kafka_consumer(
                 CONFIG["VALIDATED_TOPIC"],
@@ -144,37 +144,46 @@ class ShardWorker:
 
     async def process_batch(self, batch: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         confirmations = []
-        async with db.pool.acquire() as conn:
-            async with conn.transaction():
-                tasks = [self._process_transaction(conn, tx) for tx in batch]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+        await db.initialize()
+        tasks = []
 
-                for result in results:
-                    if not isinstance(result, Exception):
-                        confirmations.append(result)
+        for tx in batch:
+            task = asyncio.create_task(self._process_transaction_with_connection(tx))
+            tasks.append(task)
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for result in results:
+            if not isinstance(result, Exception):
+                confirmations.append(result)
 
         BATCH_SIZE.labels(**self.metrics_labels).set(len(confirmations))
         return confirmations
+
+    async def _process_transaction_with_connection(self, tx: Dict[str, Any]) -> Dict[str, Any]:
+        async with db.pool.acquire() as conn:
+            async with conn.transaction():
+                return await self._process_transaction(conn, tx)
 
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, max=10),
         retry=retry_if_exception_type(KafkaTimeoutError)
     )
+
     async def send_confirmation_batch(self, confirmations: List[Dict[str, Any]]):
         if not confirmations:
             return
 
-        messages = [
-            (str(conf["transaction_id"]).encode(), json.dumps(conf).encode("utf-8"))
-            for conf in confirmations
-        ]
-
-        await self.producer.send_batch(
-            CONFIG["CONFIRMATION_TOPIC"],
-            messages=messages
-        )
-        logger.debug(f"Sent {len(messages)} confirmations")
+        for conf in confirmations:
+            key = str(conf["transaction_id"]).encode()
+            value = json.dumps(conf).encode("utf-8")
+            await self.producer.send_and_wait(
+                CONFIG["CONFIRMATION_TOPIC"],
+                value=value,
+                key=key
+            )
+        logger.info(f"Sent {len(confirmations)} confirmations")
 
     async def batch_processor(self):
         while True:

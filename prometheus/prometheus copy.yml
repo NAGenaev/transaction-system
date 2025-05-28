@@ -1,0 +1,84 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'api'
+    static_configs:
+      - targets: ['api:8000']
+  - job_name: 'orchestrator'
+    static_configs:
+      - targets: ['orchestrator:8002']
+
+  - job_name: 'worker0'
+    static_configs:
+      - targets: ['worker0:8001']
+
+  - job_name: 'worker1'
+    static_configs:
+      - targets: ['worker1:8001']
+
+  - job_name: 'worker2'
+    static_configs:
+      - targets: ['worker2:8001']
+
+  - job_name: 'worker3'
+    static_configs:
+      - targets: ['worker3:8001']
+
+  - job_name: 'worker4'
+    static_configs:
+      - targets: ['worker4:8001']
+
+  - job_name: 'worker5'
+    static_configs:
+      - targets: ['worker5:8001']
+
+  - job_name: 'worker6'
+    static_configs:
+      - targets: ['worker6:8001']
+
+  - job_name: 'worker7'
+    static_configs:
+      - targets: ['worker7:8001']
+
+  - job_name: 'worker8'
+    static_configs:
+      - targets: ['worker8:8001']
+
+  - job_name: 'worker9'
+    static_configs:
+      - targets: ['worker9:8001']
+
+  - job_name: 'worker10'
+    static_configs:
+      - targets: ['worker10:8001']
+
+  - job_name: 'worker11'
+    static_configs:
+      - targets: ['worker11:8001']
+
+  - job_name: 'worker12'
+    static_configs:
+      - targets: ['worker12:8001']
+
+  - job_name: 'worker13'
+    static_configs:
+      - targets: ['worker13:8001']
+
+  - job_name: 'worker14'
+    static_configs:
+      - targets: ['worker14:8001']
+
+  - job_name: 'worker15'
+    static_configs:
+      - targets: ['worker15:8001']
+
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
