@@ -156,7 +156,7 @@ class ShardWorker:
 
     async def process_batch(self, batch: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         confirmations = []
-        await db.initialize()
+        #await db.initialize()
         tasks = []
 
         for tx in batch:
@@ -186,15 +186,16 @@ class ShardWorker:
     async def send_confirmation_batch(self, confirmations: List[Dict[str, Any]]):
         if not confirmations:
             return
-
-        for conf in confirmations:
-            key = str(conf["transaction_id"]).encode()
-            value = json.dumps(conf).encode("utf-8")
-            await self.producer.send_and_wait(
+        
+        tasks = [
+            self.producer.send_and_wait(
                 CONFIG["CONFIRMATION_TOPIC"],
-                value=value,
-                key=key
+                value=json.dumps(conf).encode("utf-8"),
+                key=str(conf["transaction_id"]).encode()
             )
+            for conf in confirmations
+        ]
+        await asyncio.gather(*tasks)
         logger.info(f"Sent {len(confirmations)} confirmations")
 
     async def batch_processor(self):
