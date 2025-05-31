@@ -9,23 +9,21 @@ KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_URI", "kafka:9092")
 async def get_kafka_producer(
     acks="all",
     linger_ms=50,
-    compression_type="snappy",  # По умолчанию snappy
+    compression_type="snappy",
     **kwargs
 ):
-    """
-    Создание продюсера Kafka с безопасными настройками по умолчанию.
-    Поддерживаемые типы сжатия: 'gzip', 'snappy', 'lz4', 'zstd'
-    """
     try:
         producer = AIOKafkaProducer(
             bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
             acks=acks,
             linger_ms=linger_ms,
             compression_type=compression_type,
+            enable_idempotence=True,  # Включаем идемпотентность
+            transactional_id="api-producer" if os.getenv("ENABLE_TRANSACTIONS") else None,
             **kwargs
         )
         await producer.start()
-        logger.info(f"Kafka producer запущен (compression: {compression_type})")
+        logger.info(f"Kafka producer запущен (compression: {compression_type}, idempotence: True)")
         return producer
     except Exception as e:
         logger.error(f"Ошибка инициализации producer: {e}")

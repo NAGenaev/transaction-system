@@ -99,6 +99,18 @@ class ShardWorker:
         return bool(result)
 
     async def _process_transaction(self, conn, tx: Dict[str, Any]) -> Dict[str, Any]:
+        # Проверяем, нет ли уже такой транзакции в БД
+        existing_tx = await conn.fetchrow(
+            "SELECT id FROM transactions WHERE transaction_id = $1",
+            tx["transaction_id"]  # Используем UUID из запроса
+        )
+        if existing_tx:
+            logger.warning(f"Transaction {tx['transaction_id']} already processed, skipping")
+            return {
+                "status": "duplicate",
+                "transaction_id": existing_tx["id"]
+            }
+        
         start_time = time.time()
         try:
             sender = tx["sender_account"]
@@ -121,9 +133,9 @@ class ShardWorker:
 
             tx_id = await conn.fetchrow(
                 """INSERT INTO transactions 
-                (sender_account, receiver_account, amount, timestamp) 
-                VALUES ($1, $2, $3, $4) RETURNING id""",
-                sender, receiver, amount, datetime.utcnow()
+                (sender_account, receiver_account, amount, timestamp, transaction_id)
+                VALUES ($1, $2, $3, $4, $5) RETURNING id""",
+                sender, receiver, amount, datetime.utcnow(), tx["transaction_id"]
             )
 
             PROCESSING_TIME.labels(**self.metrics_labels).observe(time.time() - start_time)

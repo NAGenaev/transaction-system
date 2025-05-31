@@ -135,6 +135,7 @@ class RedisClient:
         await self.batch_lock(dummy_pairs)
         await self.batch_unlock(dummy_pairs)
 
+
 # ==================== ОСНОВНАЯ ЛОГИКА ====================
 class Orchestrator:
     def __init__(self):
@@ -147,6 +148,16 @@ class Orchestrator:
         self.shard_partitions = {}  # Кэш партиций для шардов
         self.lock = asyncio.Lock()  # Для атомарных операций
     
+    async def redis_requeue_worker(self):
+        while True:
+            keys = await self.redis.redis.keys("queue:*")
+            for key in keys:
+                tx_data = await self.redis.redis.lpop(key)
+                if tx_data:
+                    tx = json.loads(tx_data)
+                    await self.queue.put([tx])
+            await asyncio.sleep(1)
+
     async def initialize(self):
         self.producer = await get_kafka_producer(**CONFIG["KAFKA_PRODUCER_CONFIG"])
         self.consumer = await get_kafka_consumer(
@@ -245,7 +256,7 @@ class Orchestrator:
             
             return processed
         except Exception as e:
-            logger.error(f"Batch processing failed: {e}")
+            logger.error(f"Batch processing failed: {e} | batch: {[tx['transaction_id'] for tx in batch]}")
             return []
     
     async def worker(self):
@@ -298,32 +309,70 @@ class Orchestrator:
             except Exception as e:
                 logger.error(f"Failed to process confirmation message: {e}")
     
-    async def run(self):
-        logger.info(pyfiglet.figlet_format("Orchestrator"))
+    async def start(self):
+        """Запуск всех компонентов"""
         await self.initialize()
-        logger.info("Orchestrator initialized and starting")
-
-        workers = await self.start_workers()
-        
-        tasks = [
-            asyncio.create_task(self.consume_transactions()),
-            asyncio.create_task(self.consume_confirmations()),
-        ]
-        
         start_http_server(CONFIG["METRICS_PORT"])
-        
-        await asyncio.gather(*tasks)
-        await self.queue.join()
-        
-        for w in workers:
-            w.cancel()
-        await asyncio.gather(*workers, return_exceptions=True)
+        logger.info(pyfiglet.figlet_format("ORCHESTRATOR"))
+        logger.info("Starting Orchestrator service...")
+
+        # Запускаем воркеры
+        workers = [
+            asyncio.create_task(self.worker())
+            for _ in range(CONFIG["MAX_PARALLEL_WORKERS"])
+        ]
+
+        # Восстановление очередей из Redis
+        asyncio.create_task(self.redis_requeue_worker())
+
+        # Консьюмер транзакций от API
+        asyncio.create_task(self.consume_transactions())
+
+        # Консьюмер подтверждений от воркеров
+        asyncio.create_task(self.consume_confirmations())
+
+        await asyncio.gather(*workers)
+
+    async def consume_transactions(self):
+        """Обработка сообщений от API"""
+        try:
+            async for msg in self.consumer:
+                try:
+                    transaction = json.loads(msg.value)
+                    Metrics.received.inc()
+                    await self.queue.put([transaction])
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid JSON received: {msg.value}")
+        except CancelledError:
+            logger.info("Transaction consumer cancelled")
+        except Exception as e:
+            logger.error(f"Transaction consumer error: {e}")
+
+    async def consume_confirmations(self):
+        """Обработка подтверждений о завершённых транзакциях"""
+        try:
+            async for msg in self.confirmation_consumer:
+                try:
+                    tx = json.loads(msg.value)
+                    sender = tx.get("sender_account")
+                    receiver = tx.get("receiver_account")
+                    if sender and receiver:
+                        await self.redis.batch_unlock([(sender, receiver)])
+                        Metrics.confirmations.inc()
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid confirmation JSON: {msg.value}")
+        except CancelledError:
+            logger.info("Confirmation consumer cancelled")
+        except Exception as e:
+            logger.error(f"Confirmation consumer error: {e}")
 
 
 # ==================== ЗАПУСК ====================
 if __name__ == "__main__":
-    ascii_banner = pyfiglet.figlet_format("OPTIMIZED ORCHESTRATOR", font="slant")
-    print(ascii_banner)
-    
-    orchestrator = Orchestrator()
-    asyncio.run(orchestrator.run())
+    try:
+        orchestrator = Orchestrator()
+        asyncio.run(orchestrator.start())
+    except KeyboardInterrupt:
+        logger.info("Orchestrator shutdown by user")
+    except Exception as e:
+        logger.exception(f"Fatal error in Orchestrator: {e}")

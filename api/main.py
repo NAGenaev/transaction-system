@@ -10,10 +10,8 @@ from common.kafka import get_kafka_producer
 from common.constants import TOPIC_API_TO_ORCH
 
 # Настройка логирования
-#logging.basicConfig(
-#    level=logging.INFO,
-#    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-#)
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)  # Или DEBUG, WARNING, ERROR
 
 #logger = logging.getLogger("api")
 
@@ -83,16 +81,23 @@ async def create_transaction(tx: Transaction):
 
     try:
         message = tx.json().encode("utf-8")
-        await asyncio.wait_for(
+        
+        # Добавляем лог перед отправкой
+        logger.info(f"Attempting to send transaction {tx.transaction_id}")
+        
+        result = await asyncio.wait_for(
             app.state.producer.send_and_wait(TOPIC_API_TO_ORCH, message),
             timeout=2.0
         )
-        #logger.info(f"📦 API → Orchestrator: {tx}")
+        
+        # Логируем результат отправки
+        logger.info(f"Successfully sent transaction {tx.transaction_id}, partition: {result.partition}, offset: {result.offset}")
+        
         return {"status": "queued", "transaction_id": tx.transaction_id}
 
     except asyncio.TimeoutError:
-        #logger.error(f"⏱ Timeout при отправке Kafka: {tx}")
+        logger.error(f"Timeout sending transaction {tx.transaction_id}")
         raise HTTPException(status_code=504, detail="Kafka timeout")
     except Exception as e:
-        #logger.exception(f"💥 Ошибка при отправке в Kafka: {e}")
+        logger.error(f"Failed to send transaction {tx.transaction_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Kafka send failed")
