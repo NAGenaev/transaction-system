@@ -19,6 +19,9 @@ CONFIG = {
     "TOPIC_CONFIRMATION": "transaction-confirmation",
     "SHARD_COUNT": 1,
     "REDIS_URL": "redis://redis:6379",
+    "REDIS_TIMEOUT": 5.0,  # Таймаут операций Redis
+    "REDIS_CONNECT_TIMEOUT": 3.0,  # Таймаут подключения
+    "SHUTDOWN_TIMEOUT": 10.0, # Время на корректное завершение
     "MAX_PARALLEL_WORKERS": 500,
     "BATCH_SIZE": 100,
     "LOCK_TIMEOUT": 30,
@@ -50,6 +53,7 @@ class Metrics:
     confirmations = Counter("orchestrator_confirmation_received_total", "Total confirmations")
     active_locks = Gauge("orchestrator_active_locks", "Current active locks")
     queue_size = Gauge("orchestrator_queue_size", "Current queue size")
+    redis_connections = Gauge("orchestrator_redis_connections", "Active Redis connections")
     processing_time = Histogram("orchestrator_processing_time", "Processing time in seconds", 
                               buckets=[0.01, 0.05, 0.1, 0.5, 1, 5])
 
@@ -59,6 +63,7 @@ class RedisClient:
     
     def __init__(self):
         self.redis = None
+        self._connection_pool = None
         self.lock_script = None
         self.unlock_script = None
     
@@ -70,10 +75,16 @@ class RedisClient:
         return cls._instance
     
     async def initialize(self):
-        self.redis = await aioredis.from_url(
+        self._connection_pool = aioredis.ConnectionPool.from_url(
             CONFIG["REDIS_URL"],
-            max_connections=CONFIG["MAX_PARALLEL_WORKERS"] * 2
+            max_connections=CONFIG["MAX_PARALLEL_WORKERS"] * 2,
+            socket_timeout=CONFIG["REDIS_TIMEOUT"],
+            socket_connect_timeout=CONFIG["REDIS_TIMEOUT"]
         )
+        logger.info(f"Redis pool created. Max connections: {self._connection_pool.max_connections}")
+
+        self.redis = aioredis.Redis(connection_pool=self._connection_pool)
+        # Инициализация скриптов
         self.lock_script = self.redis.register_script("""
             local results = {}
             for i = 1, #KEYS/2 do
@@ -95,45 +106,125 @@ class RedisClient:
             redis.call('DEL', unpack(KEYS))
             return #KEYS/2
         """)
+
+        # Мониторинг соединений
+        asyncio.create_task(self._monitor_connections())
+
+    async def _monitor_connections(self):
+        """Мониторинг состояния соединений Redis"""
+        try:
+            while True:
+                try:
+                    if self.redis:
+                        # Получаем информацию о клиентах
+                        info = await self.redis.info('clients')
+                        current_connections = info['connected_clients']
+                        # Обновляем метрику
+                        Metrics.redis_connections.set(current_connections)
+                        # Логируем только если количество изменилось (для уменьшения логов)
+                        if hasattr(self, '_last_connection_count'):
+                            if current_connections != self._last_connection_count:
+                                logger.info(f"Redis connections: {current_connections}")
+                        else:
+                            logger.info(f"Redis connections: {current_connections}")
+
+                        self._last_connection_count = current_connections
+
+                    # Ожидание с возможностью прерывания
+                    await asyncio.sleep(30)
+
+                except asyncio.CancelledError:
+                    logger.info("Redis monitoring task cancelled")
+                    break
+
+                except Exception as e:
+                    logger.error(f"Redis monitoring error: {e}")
+                    await asyncio.sleep(5)  # Задержка после ошибки
+
+        except Exception as e:
+            logger.error(f"Fatal monitoring error: {e}")
+            raise
+    
+    async def close(self):
+        """Корректное закрытие соединений"""
+        logger.info(f"Closing Redis connections. In use: {self._connection_pool._in_use_connections}")
+        if self.redis:
+            await self.redis.aclose()
+        if self._connection_pool:
+            await self._connection_pool.aclose()
+        logger.info("Redis connections closed")
+
     
     async def batch_lock(self, pairs):
-        """Атомарная блокировка нескольких пар аккаунтов"""
+        try:
+            return await asyncio.wait_for(
+                self._do_batch_lock(pairs),
+                timeout=CONFIG["REDIS_TIMEOUT"]  # 5 секунд таймаут
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Redis lock timeout")
+            return []
+        except Exception as e:
+            logger.error(f"Lock error: {e}")
+            return []
+
+
+    async def _do_batch_lock(self, pairs):
+        """Реальная реализация блокировки"""
         keys = []
         for sender, receiver in pairs:
             keys.extend([f"lock:{sender}", f"lock:{receiver}"])
-        
-        try:
-            # Результат будет списком [1, 0, 1, ...] где 1 - успешная блокировка
-            results = await self.lock_script(keys=keys, args=[CONFIG["LOCK_TIMEOUT"]])
-            
-            locked_pairs = []
-            for i, (sender, receiver) in enumerate(pairs):
-                if results[i]:
-                    locked_pairs.append((sender, receiver))
-                    Metrics.active_locks.inc(2)
-            
-            return locked_pairs
-        except Exception as e:
-            logger.error(f"Redis lock error: {e}")
-            return []
+
+        results = await self.lock_script(keys=keys, args=[CONFIG["LOCK_TIMEOUT"]])
+
+        locked_pairs = []
+        for i, (sender, receiver) in enumerate(pairs):
+            if results[i]:
+                locked_pairs.append((sender, receiver))
+                Metrics.active_locks.inc(2)
+        return locked_pairs
+
     
     async def batch_unlock(self, pairs):
+        try:
+            unlocked_count = await asyncio.wait_for(
+                self._do_batch_unlock(pairs),
+                timeout=CONFIG["REDIS_TIMEOUT"]  # Таймаут 5 секунд
+            )
+            return unlocked_count
+        except asyncio.TimeoutError:
+            logger.warning("Redis unlock timeout")
+            return 0
+        except Exception as e:
+            logger.error(f"Unlock error: {e}")
+            return 0
+
+    async def _do_batch_unlock(self, pairs):
         """Атомарная разблокировка нескольких пар аккаунтов"""
         keys = []
         for sender, receiver in pairs:
             keys.extend([f"lock:{sender}", f"lock:{receiver}"])
         
-        try:
-            await self.unlock_script(keys=keys)
-            Metrics.active_locks.dec(len(keys))
-        except Exception as e:
-            logger.error(f"Redis unlock error: {e}")
+        result = await self.unlock_script(keys=keys)
+        Metrics.active_locks.dec(len(keys))  # Обновляем метрики
+        return result  # Возвращаем количество разблокированных пар
 
-    async def warmup_redis_scripts(self):
-        """Прогрев Redis скриптов перед использованием"""
-        dummy_pairs = [("test1", "test2"), ("test3", "test4")]
-        await self.batch_lock(dummy_pairs)
-        await self.batch_unlock(dummy_pairs)
+    #async def warmup_redis_scripts(self):
+    #    """Прогрев Redis скриптов перед использованием"""
+    #    dummy_pairs = [("test1", "test2"), ("test3", "test4")]
+    #    try:
+    #        await asyncio.wait_for(
+    #            self.batch_lock(dummy_pairs),
+    #            timeout=CONFIG["REDIS_TIMEOUT"]
+    #        )
+    #        await asyncio.wait_for(
+    #            self.batch_unlock(dummy_pairs),
+    #            timeout=CONFIG["REDIS_TIMEOUT"]
+    #        )
+    #    except asyncio.TimeoutError:
+    #        logger.warning("Redis warmup timed out")
+    #    except Exception as e:
+    #        logger.error(f"Warmup error: {e}")
 
 
 # ==================== ОСНОВНАЯ ЛОГИКА ====================
@@ -173,13 +264,8 @@ class Orchestrator:
         self.redis = await RedisClient.get()
         
         # Предварительная загрузка Lua-скриптов
-        await self.warmup_redis_scripts()
+        #await self.redis.warmup_redis_scripts()
 
-    async def warmup_redis_scripts(self):
-        """Предварительная загрузка скриптов Redis"""
-        dummy_pairs = [("test1", "test2"), ("test3", "test4")]
-        await self.redis.batch_lock(dummy_pairs)
-        await self.redis.batch_unlock(dummy_pairs)
 
     @retry(
         stop=stop_after_attempt(3),
@@ -261,9 +347,12 @@ class Orchestrator:
     
     async def worker(self):
         while True:
-            batch = await self.queue.get()
             try:
+                batch = await self.queue.get()
                 await self.process_batch(batch)
+            except asyncio.CancelledError:
+                logger.info("Worker received cancellation signal")
+                break
             except Exception as e:
                 logger.error(f"Worker error: {e}")
             finally:
@@ -311,27 +400,36 @@ class Orchestrator:
     
     async def start(self):
         """Запуск всех компонентов"""
-        await self.initialize()
-        start_http_server(CONFIG["METRICS_PORT"])
-        logger.info(pyfiglet.figlet_format("ORCHESTRATOR"))
-        logger.info("Starting Orchestrator service...")
+        try:        
+            await self.initialize()
+            start_http_server(CONFIG["METRICS_PORT"])
+            logger.info(pyfiglet.figlet_format("ORCHESTRATOR"))
+            logger.info("Starting Orchestrator service...")
 
-        # Запускаем воркеры
-        workers = [
-            asyncio.create_task(self.worker())
-            for _ in range(CONFIG["MAX_PARALLEL_WORKERS"])
-        ]
+            # Запускаем все основные задачи
+            workers = [asyncio.create_task(self.worker())
+                for _ in range(CONFIG["MAX_PARALLEL_WORKERS"])]
 
-        # Восстановление очередей из Redis
-        asyncio.create_task(self.redis_requeue_worker())
+            tasks = workers + [
+                # Восстановление очередей из Redis
+                asyncio.create_task(self.redis_requeue_worker()),
+                # Консьюмер транзакций от API
+                asyncio.create_task(self.consume_transactions()),
+                # Консьюмер подтверждений от воркеров
+                asyncio.create_task(self.consume_confirmations())
+            ]
 
-        # Консьюмер транзакций от API
-        asyncio.create_task(self.consume_transactions())
+            await asyncio.gather(*tasks)
 
-        # Консьюмер подтверждений от воркеров
-        asyncio.create_task(self.consume_confirmations())
+        except asyncio.CancelledError:
+            logger.info("Received shutdown signal")
 
-        await asyncio.gather(*workers)
+        except Exception as e:
+            logger.error(f"Service error: {e}")
+
+        finally:
+            await self.shutdown()  # Гарантированное освобождение ресурсов
+        
 
     async def consume_transactions(self):
         """Обработка сообщений от API"""
@@ -366,13 +464,60 @@ class Orchestrator:
         except Exception as e:
             logger.error(f"Confirmation consumer error: {e}")
 
+    async def shutdown(self):
+        """Корректное завершение работы"""
+        try:
+            await asyncio.wait_for(self._shutdown(), timeout=CONFIG["SHUTDOWN_TIMEOUT"])
+        except asyncio.TimeoutError:
+            logger.error("Graceful shutdown timed out!")
+
+        try:
+            # 1. Сначала останавливаем генерацию новых задач
+            if hasattr(self, 'consumer') and self.consumer:
+                await self.consumer.stop()
+            if hasattr(self, 'confirmation_consumer') and self.confirmation_consumer:
+                await self.confirmation_consumer.stop()
+            
+            # 2. Отменяем все работающие задачи
+            tasks = [t for t in asyncio.all_tasks()
+                     if t is not asyncio.current_task()]
+            
+            logger.info(f"Cancelling {len(tasks)} running tasks...")
+            for task in tasks:
+                task.cancel()
+
+            # Даём задачам время на корректное завершение
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+            # 3. Теперь можно закрывать соединения
+            if hasattr(self, 'redis') and self.redis:
+                logger.info("Closing Redis connections...")
+                await self.redis.close()
+
+            if hasattr(self, 'producer') and self.producer:
+                logger.info("Closing Kafka producer...")
+                await self.producer.stop()
+
+            logger.info("All resources released")
+        
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}")
+            raise
+
 
 # ==================== ЗАПУСК ====================
 if __name__ == "__main__":
+    orchestrator = Orchestrator()
+
     try:
-        orchestrator = Orchestrator()
         asyncio.run(orchestrator.start())
     except KeyboardInterrupt:
         logger.info("Orchestrator shutdown by user")
     except Exception as e:
         logger.exception(f"Fatal error in Orchestrator: {e}")
+    finally:
+        # Гарантированная очистка при любом завершении
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.run_until_complete(orchestrator.shutdown())
+        logger.info("Service stopped")

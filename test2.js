@@ -8,7 +8,7 @@ const transactionsPerVU = totalTransactions / vus;
 
 export const options = {
   vus: vus,
-  iterations: 2000,
+  iterations: 100000,
   thresholds: {
     'http_req_duration': ['p(95)<1000'],
     'http_req_failed': ['rate<0.01'],
