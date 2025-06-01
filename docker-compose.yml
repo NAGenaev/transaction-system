@@ -49,6 +49,17 @@ services:
     ports:
       - "6379:6379"
 
+  redis_exporter:
+    image: oliver006/redis_exporter:latest
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+######## KAFKA-UI ########
   kafka-ui:
     image: provectuslabs/kafka-ui
     environment:

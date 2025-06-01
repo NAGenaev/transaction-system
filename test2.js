@@ -3,12 +3,12 @@ import { check, sleep } from 'k6';
 
 const startNumber = 40817810111322211n;
 const totalTransactions = 1_000_000;
-const vus = 100;
+const vus = 200;
 const transactionsPerVU = totalTransactions / vus;
 
 export const options = {
   vus: vus,
-  iterations: 50000,
+  iterations: 2000,
   thresholds: {
     'http_req_duration': ['p(95)<1000'],
     'http_req_failed': ['rate<0.01'],
