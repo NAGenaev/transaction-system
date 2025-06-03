@@ -77,7 +77,7 @@ class RedisClient:
     async def initialize(self):
         self._connection_pool = aioredis.ConnectionPool.from_url(
             CONFIG["REDIS_URL"],
-            max_connections=CONFIG["MAX_PARALLEL_WORKERS"] * 2,
+            max_connections=CONFIG["MAX_PARALLEL_WORKERS"] + 20,
             socket_timeout=CONFIG["REDIS_TIMEOUT"],
             socket_connect_timeout=CONFIG["REDIS_TIMEOUT"]
         )
