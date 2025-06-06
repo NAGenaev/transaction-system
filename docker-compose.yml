@@ -164,6 +164,16 @@ services:
       - SHARD_ID=0
       - VALIDATED_TOPIC=validated-transactions-0
 
+  worker1:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+    environment:
+      - SHARD_ID=1
+      - VALIDATED_TOPIC=validated-transactions-1
 
 volumes:
   postgres-data:

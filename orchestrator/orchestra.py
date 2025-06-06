@@ -17,7 +17,7 @@ from asyncio import CancelledError
 CONFIG = {
     "TOPIC_API_TO_ORCH": "transaction-events",
     "TOPIC_CONFIRMATION": "transaction-confirmation",
-    "SHARD_COUNT": 1,
+    "SHARD_COUNT": 2,
     "REDIS_URL": "redis://redis:6379",
     "REDIS_TIMEOUT": 5.0,  # Таймаут операций Redis
     "REDIS_CONNECT_TIMEOUT": 3.0,  # Таймаут подключения

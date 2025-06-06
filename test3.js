@@ -3,24 +3,27 @@ import { check, sleep } from 'k6';
 
 const startNumber = 40817810111322211n;
 const totalTransactions = 1_000_000;
-const vus = 400;
-const transactionsPerVU = totalTransactions / vus;
+const vus = 200;
 
 export const options = {
-  vus: vus,
-  iterations: 1000000,
-  maxDuration: '60m',
+  scenarios: {
+    transactions: {
+      executor: 'per-vu-iterations', // Каждый VU выполняет свои итерации
+      vus: vus,
+      iterations: totalTransactions / vus, // 2500 итераций на VU
+      maxDuration: '1h', // Максимальное время выполнения
+    },
+  },
   thresholds: {
     'http_req_duration': ['p(95)<1000'],
     'http_req_failed': ['rate<0.01'],
   },
+  discardResponseBodies: true, // Уменьшаем использование памяти
 };
 
 export default function () {
-  const localIndex = BigInt(__ITER % transactionsPerVU); // номер итерации внутри диапазона VU
-  const vuOffset = BigInt((__VU - 1)) * BigInt(transactionsPerVU);
-
-  const globalIndex = vuOffset + localIndex;
+  const vuIterations = totalTransactions / vus;
+  const globalIndex = BigInt((__VU - 1) * vuIterations + __ITER);
 
   const sender = (startNumber + globalIndex).toString();
   const receiver = (startNumber + BigInt(totalTransactions - 1) - globalIndex).toString();
