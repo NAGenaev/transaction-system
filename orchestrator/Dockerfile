@@ -13,9 +13,5 @@ RUN pip install python-snappy
 COPY ./common /app/common
 COPY ./orchestrator /app/orchestrator
 
-# Устанавливаем переменные окружения
-ENV PYTHONPATH=/app
-ENV PYTHONUNBUFFERED=1
-
 # Запускаем приложение (с задержкой, если нужно дождаться Kafka)
 CMD sleep 1 && python -u orchestrator/orchestra.py

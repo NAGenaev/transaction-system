@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 from enum import Enum
 from common.kafka import get_kafka_producer, get_kafka_consumer
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
@@ -14,6 +15,8 @@ from collections import defaultdict
 from asyncio import CancelledError
 
 # ==================== КОНФИГУРАЦИЯ ====================
+ORCHESTRATOR_KAFKA_LOGLVL = os.getenv("ORCHESTRATOR_KAFKA_LOGLVL", "INFO").upper()
+
 CONFIG = {
     "TOPIC_API_TO_ORCH": "transaction-events",
     "TOPIC_CONFIRMATION": "transaction-confirmation",
@@ -39,6 +42,9 @@ CONFIG = {
 }
 
 # ==================== ИНИЦИАЛИЗАЦИЯ ЛОГГЕРА ====================
+KAFKA_LOGLEVEL = getattr(logging, ORCHESTRATOR_KAFKA_LOGLVL, logging.INFO) # Модуль KAFKA
+logging.getLogger("aiokafka").setLevel(KAFKA_LOGLEVEL)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -400,10 +406,10 @@ class Orchestrator:
     
     async def start(self):
         """Запуск всех компонентов"""
-        try:        
+        print(pyfiglet.figlet_format("ORCHESTRATOR"))
+        try:      
             await self.initialize()
             start_http_server(CONFIG["METRICS_PORT"])
-            logger.info(pyfiglet.figlet_format("ORCHESTRATOR"))
             logger.info("Starting Orchestrator service...")
 
             # Запускаем все основные задачи

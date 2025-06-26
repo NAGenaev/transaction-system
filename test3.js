@@ -11,7 +11,7 @@ export const options = {
       executor: 'per-vu-iterations', // Каждый VU выполняет свои итерации
       vus: vus,
       iterations: totalTransactions / vus, // 2500 итераций на VU
-      maxDuration: '1h', // Максимальное время выполнения
+      maxDuration: '1m', // Максимальное время выполнения
     },
   },
   thresholds: {

@@ -14,12 +14,29 @@ from typing import List, Dict, Any
 import time
 
 # ────────────────────────────
-# Конфигурация
+# Импорт преременных окружения 
 SHARD_ID = os.getenv("SHARD_ID", "0")
+WORKER_CONFIRMATION_TOPIC = os.getenv("WORKER_CONFIRMATION_TOPIC")
+WORKER_DB_HOST = os.getenv("WORKER_DB_HOST")
+WORKER_DB_PORT = int(os.getenv("WORKER_DB_PORT"))
+WORKER_DB_USER = os.getenv("WORKER_DB_USER")
+WORKER_DB_PASSWORD = os.getenv("WORKER_DB_PASSWORD")
+WORKER_DB_DATABASE = os.getenv("WORKER_DB_DATABASE")
+WORKER_DBPOOL_MIN_SIZE = int(os.getenv("WORKER_DBPOOL_MIN_SIZE"))
+WORKER_DBPOOL_MAX_SIZE = int(os.getenv("WORKER_DBPOOL_MAX_SIZE"))
+WORKER_METRICS_PORT = int(os.getenv("WORKER_METRICS_PORT"))
+WORKER_MAX_CONCURRENT_TASKS = int(os.getenv("WORKER_MAX_CONCURRENT_TASKS", "50"))
+WORKER_BATCH_SIZE = int(os.getenv("WORKER_BATCH_SIZE", "200"))
+WORKER_BATCH_TIMEOUT_MS = int(os.getenv("WORKER_BATCH_TIMEOUT_MS", "500"))
+WORKER_LOGLVL = os.getenv("WORKER_LOGLVL", "INFO").upper()
+WORKER_KAFKA_LOGLVL = os.getenv("WORKER_KAFKA_LOGLVL", "INFO").upper()
+
+# ────────────────────────────
+# Конфигурация
 CONFIG = {
-    "MAX_CONCURRENT_TASKS": 50,
-    "BATCH_SIZE": 100,
-    "BATCH_TIMEOUT_MS": 200,
+    "MAX_CONCURRENT_TASKS": WORKER_MAX_CONCURRENT_TASKS,
+    "BATCH_SIZE": WORKER_BATCH_SIZE,
+    "BATCH_TIMEOUT_MS": WORKER_BATCH_TIMEOUT_MS,
     "KAFKA_PRODUCER_CONFIG": {
         "max_batch_size": 32768,
         "linger_ms": 20,
@@ -32,16 +49,16 @@ CONFIG = {
         "session_timeout_ms": 45000
     },
     "VALIDATED_TOPIC": f"validated-transactions-{SHARD_ID}",
-    "CONFIRMATION_TOPIC": "transaction-confirmation",
-    "METRICS_PORT": 8001,
+    "CONFIRMATION_TOPIC": WORKER_CONFIRMATION_TOPIC,
+    "METRICS_PORT": WORKER_METRICS_PORT,
     "DB_CONFIG": {
-        "host": "postgres",
-        "port": 5432,
-        "user": "user",
-        "password": "password",
-        "database": "transactions",
-        "min_size": 5,
-        "max_size": 20
+        "host": WORKER_DB_HOST,
+        "port": WORKER_DB_PORT,
+        "user": WORKER_DB_USER,
+        "password": WORKER_DB_PASSWORD,
+        "database": WORKER_DB_DATABASE,
+        "min_size": WORKER_DBPOOL_MIN_SIZE,
+        "max_size": WORKER_DBPOOL_MAX_SIZE
     }
 }
 
@@ -56,8 +73,11 @@ BATCH_SIZE = Gauge('shard_batch_size', 'Current batch size', ['shard_id'])
 
 # ────────────────────────────
 # Логгирование
+KAFKA_LOGLEVEL = getattr(logging, WORKER_KAFKA_LOGLVL, logging.INFO) # Модуль KAFKA
+logging.getLogger("aiokafka").setLevel(KAFKA_LOGLEVEL)
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, WORKER_LOGLVL, logging.INFO), # APP LOGLVL
     format=f"%(asctime)s [%(levelname)s] shard-{SHARD_ID}: %(message)s",
 )
 logger = logging.getLogger(f"worker-shard-{SHARD_ID}")
@@ -82,8 +102,11 @@ class ShardWorker:
                 **CONFIG["KAFKA_CONSUMER_CONFIG"]
             )
             logger.info(f"Worker for shard {SHARD_ID} initialized")
+            logger.debug(f"DB Config: {CONFIG['DB_CONFIG']}")
+            logger.debug(f"Kafka Consumer Topic: {CONFIG['VALIDATED_TOPIC']}")
         except Exception as e:
             logger.error(f"Failed to initialize resources: {e}")
+            logger.exception("Exception during init_resources")
             raise
 
     async def _update_balance(self, conn, account: str, amount: int) -> bool:
@@ -106,6 +129,7 @@ class ShardWorker:
         )
         if existing_tx:
             logger.warning(f"Transaction {tx['transaction_id']} already processed, skipping")
+            logger.debug(f"Duplicate transaction detected: {tx}")
             return {
                 "status": "duplicate",
                 "transaction_id": existing_tx["id"]
@@ -152,6 +176,7 @@ class ShardWorker:
         except Exception as e:
             TX_FAILED.labels(**self.metrics_labels).inc()
             logger.error(f"Transaction failed: {e}")
+            logger.exception(f"Transaction {tx['transaction_id']} failed")
             raise
 
     async def process_batch(self, batch: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -170,12 +195,18 @@ class ShardWorker:
                 confirmations.append(result)
 
         BATCH_SIZE.labels(**self.metrics_labels).set(len(confirmations))
+        logger.debug(f"Batch results: {confirmations}")
         return confirmations
-
+        
     async def _process_transaction_with_connection(self, tx: Dict[str, Any]) -> Dict[str, Any]:
         async with db.pool.acquire() as conn:
             async with conn.transaction():
-                return await self._process_transaction(conn, tx)
+                result = await self._process_transaction(conn, tx)
+                logger.info(
+                    f"Transaction {tx['transaction_id']} processed successfully: "
+                    f"{result['sender_account']} → {result['receiver_account']}, amount: {result['amount']}"
+                )
+                return result
 
     @retry(
         stop=stop_after_attempt(3),
@@ -197,6 +228,7 @@ class ShardWorker:
         ]
         await asyncio.gather(*tasks)
         logger.info(f"Sent {len(confirmations)} confirmations")
+        logger.debug(f"Confirmations payload: {confirmations}")
 
     async def batch_processor(self):
         while True:
@@ -208,9 +240,12 @@ class ShardWorker:
                 batch = list(self.pending_batch)
                 self.pending_batch.clear()
 
+            logger.info(f"Processing batch of {len(batch)} transactions")
+
             try:
                 confirmations = await self.process_batch(batch)
                 await self.send_confirmation_batch(confirmations)
+                
             except Exception as e:
                 logger.error(f"Batch processing failed: {e}")
 
@@ -218,6 +253,7 @@ class ShardWorker:
         async for msg in self.consumer:
             try:
                 tx = json.loads(msg.value)
+                logger.debug(f"Received transaction: {tx}")
                 async with self.batch_lock:
                     self.pending_batch.append(tx)
                     if len(self.pending_batch) >= CONFIG["BATCH_SIZE"]:
@@ -256,7 +292,7 @@ class ShardWorker:
 if __name__ == "__main__":
     start_http_server(CONFIG["METRICS_PORT"])
     print(pyfiglet.figlet_format(f"SHARD {SHARD_ID}", font="slant"))
-
+    logger.info(f"Starting ShardWorker for shard {SHARD_ID} with config: {CONFIG}")
     worker = ShardWorker()
     try:
         asyncio.run(worker.run())

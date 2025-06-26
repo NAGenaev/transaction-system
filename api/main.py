@@ -13,7 +13,6 @@ from common.constants import TOPIC_API_TO_ORCH
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)  # Или DEBUG, WARNING, ERROR
 
-#logger = logging.getLogger("api")
 
 # Печать баннера
 ascii_banner = pyfiglet.figlet_format("TTTS API 0.0.3", font="slant")

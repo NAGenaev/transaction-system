@@ -13,11 +13,5 @@ RUN pip install python-snappy
 COPY ./common /app/common
 COPY ./worker /app/worker
 
-# Устанавливаем переменные окружения
-ENV POSTGRES_DSN=postgresql://user:password@postgres/transactions
-ENV KAFKA_URI=kafka:9092
-ENV PYTHONPATH=/app
-ENV PYTHONUNBUFFERED=1
-
 # Запускаем приложение (после ожидания, чтобы Kafka и orchestrator успели подняться)
-CMD sleep 1 && python -u worker/consumer.py
+CMD sleep 1 && python -u worker/shard_worker.py

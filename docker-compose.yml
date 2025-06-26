@@ -48,6 +48,11 @@ services:
     image: redis:7.2
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
   redis_exporter:
     image: oliver006/redis_exporter:latest
@@ -88,7 +93,7 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
-      - grafana-data:/var/lib/grafana
+      - ./grafana-data:/var/lib/grafana
 
   cadvisor:
     restart: always
@@ -130,12 +135,15 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
       - kafka
     environment:
-      - POSTGRES_DSN=postgresql://user:password@postgres/transactions
       - KAFKA_URI=kafka:9092
       - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
 
   orchestrator:
@@ -146,12 +154,16 @@ services:
     depends_on:
       - kafka
       - redis
+      - api
     restart: unless-stopped
     environment:
+      - ORCHESTRATOR_KAFKA_LOGLVL=INFO
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - KAFKA_URI=kafka:9092
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
 
   worker0:
     restart: always
@@ -160,9 +172,26 @@ services:
       dockerfile: ./worker/Dockerfile
     depends_on:
       - kafka
+      - orchestrator
     environment:
+      - WORKER_KAFKA_LOGLVL=INFO
+      - WORKER_LOGLVL=INFO
       - SHARD_ID=0
-      - VALIDATED_TOPIC=validated-transactions-0
+      - WORKER_CONFIRMATION_TOPIC=transaction-confirmation
+      - KAFKA_URI=kafka:9092
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - WORKER_DB_HOST=postgres
+      - WORKER_DB_PORT=5432
+      - WORKER_DB_USER=user
+      - WORKER_DB_PASSWORD=password
+      - WORKER_DB_DATABASE=transactions
+      - WORKER_DBPOOL_MIN_SIZE=5
+      - WORKER_DBPOOL_MAX_SIZE=20
+      - WORKER_METRICS_PORT=8001
+      - WORKER_MAX_CONCURRENT_TASKS=50
+      - WORKER_BATCH_SIZE=100
+      - WORKER_BATCH_TIMEOUT_MS=200
 
   worker1:
     restart: always
@@ -171,9 +200,26 @@ services:
       dockerfile: ./worker/Dockerfile
     depends_on:
       - kafka
+      - orchestrator
     environment:
+      - WORKER_KAFKA_LOGLVL=INFO
+      - WORKER_LOGLVL=INFO
       - SHARD_ID=1
-      - VALIDATED_TOPIC=validated-transactions-1
+      - WORKER_CONFIRMATION_TOPIC=transaction-confirmation
+      - KAFKA_URI=kafka:9092
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - WORKER_DB_HOST=postgres
+      - WORKER_DB_PORT=5432
+      - WORKER_DB_USER=user
+      - WORKER_DB_PASSWORD=password
+      - WORKER_DB_DATABASE=transactions
+      - WORKER_DBPOOL_MIN_SIZE=5
+      - WORKER_DBPOOL_MAX_SIZE=20
+      - WORKER_METRICS_PORT=8001
+      - WORKER_MAX_CONCURRENT_TASKS=50
+      - WORKER_BATCH_SIZE=100
+      - WORKER_BATCH_TIMEOUT_MS=200
 
 volumes:
   postgres-data:
