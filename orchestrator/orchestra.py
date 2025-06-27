@@ -215,24 +215,6 @@ class RedisClient:
         Metrics.active_locks.dec(len(keys))  # Обновляем метрики
         return result  # Возвращаем количество разблокированных пар
 
-    #async def warmup_redis_scripts(self):
-    #    """Прогрев Redis скриптов перед использованием"""
-    #    dummy_pairs = [("test1", "test2"), ("test3", "test4")]
-    #    try:
-    #        await asyncio.wait_for(
-    #            self.batch_lock(dummy_pairs),
-    #            timeout=CONFIG["REDIS_TIMEOUT"]
-    #        )
-    #        await asyncio.wait_for(
-    #            self.batch_unlock(dummy_pairs),
-    #            timeout=CONFIG["REDIS_TIMEOUT"]
-    #        )
-    #    except asyncio.TimeoutError:
-    #        logger.warning("Redis warmup timed out")
-    #    except Exception as e:
-    #        logger.error(f"Warmup error: {e}")
-
-
 # ==================== ОСНОВНАЯ ЛОГИКА ====================
 class Orchestrator:
     def __init__(self):
@@ -269,10 +251,6 @@ class Orchestrator:
         )
         self.redis = await RedisClient.get()
         
-        # Предварительная загрузка Lua-скриптов
-        #await self.redis.warmup_redis_scripts()
-
-
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=0.1, max=1),
@@ -436,7 +414,6 @@ class Orchestrator:
         finally:
             await self.shutdown()  # Гарантированное освобождение ресурсов
         
-
     async def consume_transactions(self):
         """Обработка сообщений от API"""
         try:
@@ -509,7 +486,6 @@ class Orchestrator:
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
             raise
-
 
 # ==================== ЗАПУСК ====================
 if __name__ == "__main__":
