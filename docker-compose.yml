@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+######## POSTGRES ########
   postgres:
     image: postgres:15
     environment:
@@ -12,51 +13,73 @@ services:
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
 
-  rabbitmq:
-    image: bitnami/rabbitmq:latest
+######## KAFKA ########
+  zookeeper:
+    image: bitnami/zookeeper:3.8
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "2181:2181"
     environment:
-      - RABBITMQ_DEFAULT_USER=admin
-      - RABBITMQ_DEFAULT_PASS=strongpassword
-      - RABBITMQ_DEFAULT_VHOST=/
-    volumes:
-      - rabbitmq-data:/bitnami/rabbitmq
-      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
+      - ALLOW_ANONYMOUS_LOGIN=yes
 
-  rabbitmq_exporter:
-    image: kbudde/rabbitmq-exporter
+  kafka:
+    image: bitnami/kafka:3.5
     ports:
-      - "9419:9419"
-    environment:
-      - RABBIT_URL=http://admin:strongpassword@rabbitmq:15672
-      - RABBIT_USER=admin
-      - RABBIT_PASSWORD=strongpassword
-      - RABBITMQ_CAPABILITIES=no_sort,bert
-      
-
-  transaction-service:
-    build: .
-    restart: always
-    ports:
-      - "8000:8000"
-    environment:
-      POSTGRES_DSN: "postgresql://user:password@postgres/transactions"
-      RABBITMQ_URI: "amqp://admin:strongpassword@rabbitmq:5672"
+      - "9092:9092"
     depends_on:
-      - rabbitmq
-      - rabbitmq_exporter
-      - prometheus
-      - grafana
-      - postgres
+      - zookeeper
+    environment:
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_BROKER_ID=1
+      - KAFKA_CFG_NUM_PARTITIONS=16
+      - KAFKA_CFG_REPLICATION_FACTOR=1
+      - KAFKA_CFG_LOG_RETENTION_HOURS=1
+    healthcheck:
+      test: ["CMD", "kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
 
+######## REDIS ########
+  redis:
+    image: redis:7.2
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  redis_exporter:
+    image: oliver006/redis_exporter:latest
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+######## KAFKA-UI ########
+  kafka-ui:
+    image: provectuslabs/kafka-ui
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=my-cluster
+      - KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS=kafka:9092  # адрес kafka
+      - KAFKA_SERVER=PLAINTEXT://kafka:9092
+      - KAFKA_PROXY=true
+    ports:
+      - "8080:8080"
+
+######## MONITORING ########
   prometheus:
     image: prom/prometheus:latest
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
       - "9090:9090"
 
@@ -70,10 +93,135 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
-      - grafana-data:/var/lib/grafana
+      - ./grafana-data:/var/lib/grafana
+
+  cadvisor:
+    restart: always
+    image: gcr.io/cadvisor/cadvisor
+    container_name: cadvisor
+    privileged: true
+    ports:
+      - "8089:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
+  kafka-exporter:
+    restart: always
+    image: danielqsj/kafka-exporter
+    ports:
+      - "9308:9308"
+    environment:
+      KAFKA_URI: kafka:9092
+    command:
+      - '--kafka.server=kafka:9092'
+
+  postgres-exporter:
+    restart: always
+    image: prometheuscommunity/postgres-exporter
+    ports:
+      - "9187:9187"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://user:password@postgres:5432/transactions?sslmode=disable"
+
+######## PRODUCT SERVICES ########
+  api:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./api/Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_URI=kafka:9092
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    container_name: orchestrator
+    depends_on:
+      - kafka
+      - redis
+      - api
+    restart: unless-stopped
+    environment:
+      - ORCHESTRATOR_KAFKA_LOGLVL=INFO
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_URI=kafka:9092
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+
+  worker0:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+      - orchestrator
+    environment:
+      - WORKER_KAFKA_LOGLVL=INFO
+      - WORKER_LOGLVL=INFO
+      - SHARD_ID=0
+      - WORKER_CONFIRMATION_TOPIC=transaction-confirmation
+      - KAFKA_URI=kafka:9092
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - WORKER_DB_HOST=postgres
+      - WORKER_DB_PORT=5432
+      - WORKER_DB_USER=user
+      - WORKER_DB_PASSWORD=password
+      - WORKER_DB_DATABASE=transactions
+      - WORKER_DBPOOL_MIN_SIZE=5
+      - WORKER_DBPOOL_MAX_SIZE=20
+      - WORKER_METRICS_PORT=8001
+      - WORKER_MAX_CONCURRENT_TASKS=50
+      - WORKER_BATCH_SIZE=100
+      - WORKER_BATCH_TIMEOUT_MS=200
+
+  worker1:
+    restart: always
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    depends_on:
+      - kafka
+      - orchestrator
+    environment:
+      - WORKER_KAFKA_LOGLVL=INFO
+      - WORKER_LOGLVL=INFO
+      - SHARD_ID=1
+      - WORKER_CONFIRMATION_TOPIC=transaction-confirmation
+      - KAFKA_URI=kafka:9092
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - WORKER_DB_HOST=postgres
+      - WORKER_DB_PORT=5432
+      - WORKER_DB_USER=user
+      - WORKER_DB_PASSWORD=password
+      - WORKER_DB_DATABASE=transactions
+      - WORKER_DBPOOL_MIN_SIZE=5
+      - WORKER_DBPOOL_MAX_SIZE=20
+      - WORKER_METRICS_PORT=8001
+      - WORKER_MAX_CONCURRENT_TASKS=50
+      - WORKER_BATCH_SIZE=100
+      - WORKER_BATCH_TIMEOUT_MS=200
 
 volumes:
   postgres-data:
-  rabbitmq-data:
   grafana-data:
   

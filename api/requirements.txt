@@ -1,0 +1,12 @@
+# api/requirements.txt
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+asyncpg==0.29.0
+aiokafka==0.10.0
+pydantic==2.6.4
+python-dotenv==1.0.1
+prometheus-fastapi-instrumentator
+prometheus_client
+pyfiglet
+gunicorn[uvicorn]
+python-snappy
