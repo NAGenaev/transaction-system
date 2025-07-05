@@ -80,23 +80,15 @@ async def create_transaction(tx: Transaction):
 
     try:
         message = tx.json().encode("utf-8")
-        
-        # Добавляем лог перед отправкой
-        logger.info(f"Attempting to send transaction {tx.transaction_id}")
-        
-        result = await asyncio.wait_for(
-            app.state.producer.send_and_wait(TOPIC_API_TO_ORCH, message),
-            timeout=2.0
-        )
-        
-        # Логируем результат отправки
-        logger.info(f"Successfully sent transaction {tx.transaction_id}, partition: {result.partition}, offset: {result.offset}")
-        
+
+        # Фоновая отправка без ожидания результата
+        asyncio.create_task(app.state.producer.send(TOPIC_API_TO_ORCH, message))
+
+        # Лог без partition/offset, потому что мы не ждём ответа
+        logger.debug(f"Queued transaction {tx.transaction_id} for sending")
+
         return {"status": "queued", "transaction_id": tx.transaction_id}
 
-    except asyncio.TimeoutError:
-        logger.error(f"Timeout sending transaction {tx.transaction_id}")
-        raise HTTPException(status_code=504, detail="Kafka timeout")
     except Exception as e:
         logger.error(f"Failed to send transaction {tx.transaction_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Kafka send failed")

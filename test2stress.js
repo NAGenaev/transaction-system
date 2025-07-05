@@ -46,7 +46,7 @@ export default function () {
     transaction_id: uuidv4() // Глобально уникальный ID
   });
 
-  const res = http.post('http://localhost:8001/transactions/', payload, {
+  const res = http.post('http://localhost:8002/transactions/', payload, {
     headers: { 'Content-Type': 'application/json' },
     timeout: '30s',
   });

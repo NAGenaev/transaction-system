@@ -2,9 +2,13 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: 'api'
+  - job_name: 'api-gateway1'
     static_configs:
-      - targets: ['api:8000']
+      - targets: ['api-gateway1:8000']
+
+  - job_name: 'api-gateway2'
+    static_configs:
+      - targets: ['api-gateway2:8000']
       
   - job_name: 'orchestrator'
     static_configs:

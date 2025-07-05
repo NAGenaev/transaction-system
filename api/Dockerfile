@@ -1,26 +1,27 @@
+# Базовый образ
 FROM python:3.11-slim
 
-# Устанавливаем системные зависимости
+# Устанавливаем системные зависимости и чистим кэш
 RUN apt-get update && apt-get install -y \
     gcc \
     libsnappy-dev \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Устанавливаем Python-зависимости
+# Устанавливаем рабочую директорию
 WORKDIR /app
-COPY ./api/requirements.txt /app/
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install gunicorn[uvicorn]
 
-# Устанавливаем поддержку snappy
-RUN pip install python-snappy
+# Копируем файл зависимостей и устанавливаем зависимости
+COPY ./api/requirements.txt .
 
-# Копируем код приложения
-COPY ./api /app/api
-COPY ./common /app/common
+# Установка зависимостей Python
+RUN pip install --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir gunicorn[uvicorn] python-snappy
 
-# Запуск приложения
+# Копируем исходный код
+COPY ./api ./api
+COPY ./common ./common
+
+# Указываем команду запуска
 CMD ["gunicorn", "api.main:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--workers", "1", "--bind", "0.0.0.0:8000"]
-
-# Запуск приложения (без gunicorn, через uvicorn напрямую)
-# CMD ["uvicorn", "api.main:app", "--workers", "4", "--host", "0.0.0.0", "--port", "8000", "--loop", "uvloop", "--http", "httptools"]

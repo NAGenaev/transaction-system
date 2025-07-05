@@ -132,7 +132,10 @@ class ShardWorker:
             logger.debug(f"Duplicate transaction detected: {tx}")
             return {
                 "status": "duplicate",
-                "transaction_id": existing_tx["id"]
+                "transaction_id": existing_tx["id"],
+                "sender_account": tx["sender_account"],
+                "receiver_account": tx["receiver_account"],
+                "shard_id": SHARD_ID
             }
         
         start_time = time.time()
@@ -176,12 +179,20 @@ class ShardWorker:
         except Exception as e:
             TX_FAILED.labels(**self.metrics_labels).inc()
             logger.error(f"Transaction failed: {e}")
-            logger.exception(f"Transaction {tx['transaction_id']} failed")
-            raise
+            # ВОЗВРАЩАЕМ ИНФОРМАЦИЮ ОБ ОШИБКЕ ДЛЯ ПОДТВЕРЖДЕНИЯ
+            return {
+                "status": "failed",
+                "error": str(e),
+                "transaction_id": tx.get("transaction_id", "unknown"),
+                "sender_account": tx["sender_account"],
+                "receiver_account": tx["receiver_account"],
+                "shard_id": SHARD_ID
+            }
+
+
 
     async def process_batch(self, batch: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         confirmations = []
-        #await db.initialize()
         tasks = []
 
         for tx in batch:
@@ -191,22 +202,53 @@ class ShardWorker:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for result in results:
+            # ОБРАБАТЫВАЕМ КАК УСПЕШНЫЕ, ТАК И ОШИБОЧНЫЕ РЕЗУЛЬТАТЫ
             if not isinstance(result, Exception):
                 confirmations.append(result)
+            elif isinstance(result, Exception):
+                logger.error(f"Task failed with exception: {str(result)}")
+                # СОЗДАЕМ ПОДТВЕРЖДЕНИЕ ДЛЯ ОШИБКИ
+                # (в реальном коде нужно определить отправителя/получателя)
+                confirmations.append({
+                    "status": "failed",
+                    "error": str(result),
+                    "shard_id": SHARD_ID
+                })
 
         BATCH_SIZE.labels(**self.metrics_labels).set(len(confirmations))
         logger.debug(f"Batch results: {confirmations}")
         return confirmations
         
     async def _process_transaction_with_connection(self, tx: Dict[str, Any]) -> Dict[str, Any]:
-        async with db.pool.acquire() as conn:
-            async with conn.transaction():
-                result = await self._process_transaction(conn, tx)
-                logger.info(
-                    f"Transaction {tx['transaction_id']} processed successfully: "
-                    f"{result['sender_account']} → {result['receiver_account']}, amount: {result['amount']}"
-                )
-                return result
+        try:
+            async with db.pool.acquire() as conn:
+                async with conn.transaction():
+                    result = await self._process_transaction(conn, tx)
+                
+                    # ЛОГИРУЕМ РЕЗУЛЬТАТ ОБРАБОТКИ
+                    if result.get("status") == "processed":
+                        logger.info(
+                            f"Transaction {tx['transaction_id']} processed successfully: "
+                            f"{result['sender_account']} → {result['receiver_account']}, "
+                            f"amount: {result['amount']}"
+                        )
+                    else:
+                        logger.warning(
+                            f"Transaction {tx['transaction_id']} failed: "
+                            f"{result.get('error', 'Unknown error')}"
+                        )
+                
+                    return result
+        except Exception as e:
+            logger.error(f"Connection error: {e}")
+            return {
+               "status": "failed",
+                "error": str(e),
+                "transaction_id": tx.get("transaction_id", "unknown"),
+                "sender_account": tx.get("sender_account", "unknown"),
+                "receiver_account": tx.get("receiver_account", "unknown"),
+                "shard_id": SHARD_ID
+            }
 
     @retry(
         stop=stop_after_attempt(3),

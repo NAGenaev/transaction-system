@@ -1,3 +1,4 @@
+//тест на 1 млн транзакций без повтора
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
@@ -11,7 +12,7 @@ export const options = {
       executor: 'per-vu-iterations', // Каждый VU выполняет свои итерации
       vus: vus,
       iterations: totalTransactions / vus, // 2500 итераций на VU
-      maxDuration: '1m', // Максимальное время выполнения
+      maxDuration: '60m', // Максимальное время выполнения
     },
   },
   thresholds: {
@@ -36,7 +37,7 @@ export default function () {
     amount: amount,
   });
 
-  const res = http.post('http://localhost:8000/transactions/', payload, {
+  const res = http.post('http://localhost:8002/transactions/', payload, {
     headers: { 'Content-Type': 'application/json' },
     timeout: '30s',
   });
@@ -49,5 +50,5 @@ export default function () {
     console.error(`❌ Ошибка при транзакции: ${res.status} → ${payload}`);
   }
 
-  sleep(0.005);
+  sleep(0.001);
 }
